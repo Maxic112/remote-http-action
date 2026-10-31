@@ -156,6 +156,13 @@ pub enum Request {
     TlsInfo,
     /// Replaces the self-signed certificate and restarts an HTTPS server.
     TlsRegenerate,
+    UpdateStatus,
+    /// Asks the release feed for the latest version.
+    UpdateCheck,
+    /// Downloads and verifies the newer version.
+    UpdateDownload,
+    /// Applies the downloaded update; the application exits and restarts.
+    UpdateInstall,
 }
 
 /// UI-level operations implemented by the GUI shell.
@@ -182,6 +189,7 @@ pub struct Core {
     pub control: Arc<dyn AppControl>,
     pub paths: AppPaths,
     pub logs: Arc<Logger>,
+    pub updates: crate::update::Updater,
     started: Instant,
 }
 
@@ -290,6 +298,7 @@ impl Core {
             control,
             paths,
             logs,
+            updates: crate::update::Updater::new(),
             started: Instant::now(),
         }))
     }
@@ -644,6 +653,14 @@ impl Core {
                 }
                 to_value(crate::tls::info(&s.tls, &self.paths.data_dir))
             }
+
+            UpdateStatus => to_value(self.updates.status(self)),
+            UpdateCheck => to_value(self.updates.check(self).await?),
+            UpdateDownload => to_value(self.updates.download(self).await?),
+            UpdateInstall => {
+                self.updates.install(self)?;
+                Ok(json!({ "ok": true }))
+            }
         }
     }
 }
@@ -655,10 +672,14 @@ pub mod tests {
     use crate::platform::mock::MockPlatform;
 
     pub fn core_with(platform: MockPlatform) -> Arc<Core> {
+        core_with_paths(platform, false)
+    }
+
+    pub fn core_with_paths(platform: MockPlatform, portable: bool) -> Arc<Core> {
         let db = Arc::new(Db::open_in_memory().unwrap());
         // Each test core gets its own data folder (logs, certificates).
         let dir = tempfile::tempdir().unwrap().keep();
-        let paths = AppPaths::at(&dir, false);
+        let paths = AppPaths::at(&dir, portable);
         Core::new(
             db,
             Arc::new(platform),

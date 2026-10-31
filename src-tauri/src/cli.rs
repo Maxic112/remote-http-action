@@ -65,6 +65,21 @@ pub enum Command {
     /// HTTPS certificate
     #[command(subcommand)]
     Tls(TlsCmd),
+    /// Application updates
+    #[command(subcommand)]
+    Update(UpdateCmd),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum UpdateCmd {
+    /// Current and latest version, last check, download state
+    Status,
+    /// Check for a newer version now
+    Check,
+    /// Download and verify the newer version
+    Download,
+    /// Install the downloaded version; the application restarts
+    Install,
 }
 
 #[derive(Debug, Subcommand)]
@@ -400,6 +415,12 @@ pub fn to_request(cmd: Command) -> Result<Request, AppError> {
             TlsCmd::Info => Request::TlsInfo,
             TlsCmd::Regenerate => Request::TlsRegenerate,
         },
+        Command::Update(c) => match c {
+            UpdateCmd::Status => Request::UpdateStatus,
+            UpdateCmd::Check => Request::UpdateCheck,
+            UpdateCmd::Download => Request::UpdateDownload,
+            UpdateCmd::Install => Request::UpdateInstall,
+        },
         Command::App(c) => match c {
             AppCmd::Show => Request::AppShow,
             AppCmd::Quit => Request::AppQuit,
@@ -604,6 +625,8 @@ mod tests {
         );
         assert_eq!(parse(&["autostart", "install"]), Request::AutostartInstall);
         assert_eq!(parse(&["tls", "regenerate"]), Request::TlsRegenerate);
+        assert_eq!(parse(&["update", "check"]), Request::UpdateCheck);
+        assert_eq!(parse(&["update", "install"]), Request::UpdateInstall);
         assert!(Cli::try_parse_from(["x", "logs", "tail", "nope"]).is_err());
     }
 

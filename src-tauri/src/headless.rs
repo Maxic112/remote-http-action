@@ -67,6 +67,8 @@ pub fn run() -> i32 {
             }
         });
         core.start_server_if_enabled().await;
+        crate::update::cleanup_leftovers();
+        tokio::spawn(crate::update::auto_check_loop(core.clone()));
         let status = core.http.status();
         eprintln!(
             "remote-http-action running headless; HTTP server: {:?} {}",

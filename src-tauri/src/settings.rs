@@ -15,6 +15,25 @@ pub struct Settings {
     pub cli: CliSettings,
     pub app: AppSettings,
     pub logging: LoggingSettings,
+    pub updates: UpdateSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct UpdateSettings {
+    /// Check for a new version once a day.
+    pub auto_check: bool,
+    /// Release feed (GitHub "latest release" API format). Empty = the project's GitHub releases.
+    pub feed_url: String,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            auto_check: true,
+            feed_url: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -178,6 +197,15 @@ impl Default for AppSettings {
     }
 }
 
+/// Whether the interface language setting resolves to Russian (`system` follows the OS locale).
+pub fn prefers_russian(language: &str) -> bool {
+    match language {
+        "ru" => true,
+        "en" => false,
+        _ => sys_locale::get_locale().is_some_and(|l| l.to_lowercase().starts_with("ru")),
+    }
+}
+
 /// Paths that must never be changed through the CLI.
 pub const CLI_PROTECTED_PATHS: &[&str] = &["cli", "cli.enabled"];
 
@@ -273,6 +301,11 @@ impl Settings {
                     "{name} log: file size must be 1-1024 MB and file count 1-100"
                 )));
             }
+        }
+        self.updates.feed_url = self.updates.feed_url.trim().to_string();
+        let feed = &self.updates.feed_url;
+        if !feed.is_empty() && !(feed.starts_with("https://") || feed.starts_with("http://")) {
+            return Err(AppError::validation("update feed must be an http(s) URL"));
         }
         if !["system", "ru", "en"].contains(&self.app.language.as_str()) {
             return Err(AppError::validation(

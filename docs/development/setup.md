@@ -57,6 +57,10 @@ pnpm package
 | `src-tauri\target\release\remote-http-action-cli.exe` | Консольный CLI |
 | `src-tauri\target\release\bundle\msi\*_ru-RU.msi`, `*_en-US.msi` | Установщики (ставят оба exe) |
 | `src-tauri\target\release\bundle\portable\*_portable.zip` | Портативная версия: оба exe и `portable.flag` |
+| `src-tauri\target\release\bundle\release\` | **Файлы для публикации в релиз**: MSI с именами без пробелов, zip и `SHA256SUMS.txt` |
+
+Имена файлов в `bundle\release\` — часть контракта с механизмом обновления: программа ищет свой файл по окончанию имени
+(`_x64_ru-RU.msi`, `_x64_en-US.msi`, `_x64_portable.zip`) и проверяет его по `SHA256SUMS.txt`.
 
 Перед сборкой закройте приложение: запущенный exe нельзя перезаписать.
 

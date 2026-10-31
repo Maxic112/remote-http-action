@@ -9,7 +9,7 @@ const entityKeys: Record<string, readonly string[][]> = {
   keys: [[...queryKeys.keys], [...queryKeys.groups]],
   groups: [[...queryKeys.groups], [...queryKeys.keys]],
   flows: [[...queryKeys.flows], [...queryKeys.groups]],
-  settings: [[...queryKeys.settings], [...queryKeys.server]],
+  settings: [[...queryKeys.settings], [...queryKeys.server], [...queryKeys.update]],
 };
 
 /** Keeps cached data in sync with changes made from the CLI, HTTP clients or the tray. */
@@ -25,6 +25,9 @@ export function useAppEvents(onEvent?: (e: AppEvent) => void) {
           break;
         case "run_updated":
           void qc.invalidateQueries({ queryKey: queryKeys.runs });
+          break;
+        case "update_changed":
+          void qc.invalidateQueries({ queryKey: queryKeys.update });
           break;
         case "server_status_changed":
           void qc.invalidateQueries({ queryKey: queryKeys.server });

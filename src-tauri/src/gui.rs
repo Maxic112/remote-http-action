@@ -114,13 +114,7 @@ async fn api(core: tauri::State<'_, Arc<Core>>, request: Request) -> Result<Valu
     core.handle(Caller::Ui, request).await
 }
 
-fn ui_is_russian(language: &str) -> bool {
-    match language {
-        "ru" => true,
-        "en" => false,
-        _ => sys_locale::get_locale().is_some_and(|l| l.to_lowercase().starts_with("ru")),
-    }
-}
+use crate::settings::prefers_russian as ui_is_russian;
 
 fn build_tray(app: &AppHandle, core: &Arc<Core>) -> tauri::Result<()> {
     let ru = ui_is_russian(&core.settings().app.language);
@@ -205,6 +199,8 @@ pub fn run(start_minimized: bool) {
                 http_core.start_server_if_enabled().await;
                 http_core.events.emit(AppEvent::ServerStatusChanged);
             });
+            crate::update::cleanup_leftovers();
+            tauri::async_runtime::spawn(crate::update::auto_check_loop(core.clone()));
 
             if !start_minimized {
                 show_main(&handle);

@@ -22,6 +22,8 @@ pub enum AppEvent {
         cancelable: bool,
     },
     ServerStatusChanged,
+    /// Update check result or download progress changed.
+    UpdateChanged,
 }
 
 pub trait EventSink: Send + Sync {

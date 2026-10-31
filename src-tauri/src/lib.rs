@@ -16,6 +16,7 @@ pub mod runner;
 pub mod secrets;
 pub mod settings;
 pub mod tls;
+pub mod update;
 
 /// Arguments understood by the application itself; anything else is treated as a CLI command.
 const APP_FLAGS: &[&str] = &["--minimized", "--wait-pid", "--headless"];

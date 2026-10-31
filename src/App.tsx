@@ -1,4 +1,4 @@
-import { HistoryIcon, KeyRoundIcon, ScrollTextIcon, SettingsIcon, UsersIcon, WorkflowIcon } from "lucide-react";
+import { DownloadCloudIcon, HistoryIcon, KeyRoundIcon, ScrollTextIcon, SettingsIcon, UsersIcon, WorkflowIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -11,8 +11,9 @@ import { KeysPage } from "@/features/keys/KeysPage";
 import { LogsPage } from "@/features/logs/LogsPage";
 import { RunsPage } from "@/features/runs/RunsPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { UpdatePage } from "@/features/update/UpdatePage";
 import i18n, { resolveLanguage } from "@/i18n";
-import { useSettings } from "@/lib/api";
+import { useSettings, useUpdateStatus } from "@/lib/api";
 import { useAppEvents } from "@/lib/useAppEvents";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ const PAGES = {
   groups: { icon: UsersIcon, component: GroupsPage },
   runs: { icon: HistoryIcon, component: RunsPage },
   logs: { icon: ScrollTextIcon, component: LogsPage },
+  update: { icon: DownloadCloudIcon, component: UpdatePage },
   settings: { icon: SettingsIcon, component: SettingsPage },
 } as const;
 
@@ -31,6 +33,7 @@ export default function App() {
   const { t } = useTranslation();
   const [page, setPage] = useState<PageId>("flows");
   const settings = useSettings();
+  const updateAvailable = useUpdateStatus().data?.available ?? false;
   useAppEvents();
 
   const language = settings.data?.app.language;
@@ -59,6 +62,13 @@ export default function App() {
               >
                 <Icon className="size-4" />
                 {t(`nav.${id}`)}
+                {id === "update" && updateAvailable && (
+                  <span
+                    className="ml-auto size-2 rounded-full bg-orange-500"
+                    aria-label={t("update.availableShort")}
+                    data-testid="update-dot"
+                  />
+                )}
               </button>
             );
           })}

@@ -122,6 +122,7 @@ export interface Settings {
   };
   cli: { enabled: boolean };
   app: { close_to_tray: boolean; language: "system" | "ru" | "en"; run_history_limit: number };
+  updates: { auto_check: boolean; feed_url: string };
   logging: {
     http: LogCategorySettings;
     cli: LogCategorySettings;
@@ -152,6 +153,43 @@ export interface AutostartStatus {
   installed: boolean;
   command: string | null;
   matches_current: boolean;
+}
+
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+  size: number;
+  digest: string | null;
+}
+
+export interface ReleaseInfo {
+  version: string;
+  tag: string;
+  name: string;
+  notes: string;
+  published_at: string | null;
+  html_url: string | null;
+  assets: ReleaseAsset[];
+}
+
+export type UpdatePhase =
+  | { state: "idle" }
+  | { state: "checking" }
+  | { state: "downloading"; downloaded: number; total: number | null }
+  | { state: "ready"; version: string }
+  | { state: "installing" };
+
+export interface UpdateStatus {
+  current_version: string;
+  install_kind: "msi" | "portable" | "development";
+  auto_check: boolean;
+  feed_url: string;
+  last_check_at: string | null;
+  available: boolean;
+  latest: ReleaseInfo | null;
+  asset: ReleaseAsset | null;
+  error: string | null;
+  phase: UpdatePhase;
 }
 
 export interface TlsInfo {
@@ -232,10 +270,15 @@ export type Request =
   | { op: "autostart_install" }
   | { op: "autostart_remove" }
   | { op: "tls_info" }
-  | { op: "tls_regenerate" };
+  | { op: "tls_regenerate" }
+  | { op: "update_status" }
+  | { op: "update_check" }
+  | { op: "update_download" }
+  | { op: "update_install" };
 
 export type AppEvent =
   | { type: "data_changed"; entity: string }
   | { type: "run_updated"; run: Run }
   | { type: "run_delayed"; run_id: string; flow_name: string; seconds: number; cancelable: boolean }
-  | { type: "server_status_changed" };
+  | { type: "server_status_changed" }
+  | { type: "update_changed" };

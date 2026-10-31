@@ -117,6 +117,14 @@ remote-http-action-cli.exe tls info
 remote-http-action-cli.exe tls regenerate
 ```
 
+### Обновление
+
+```bash
+remote-http-action-cli.exe update status|check|download|install
+```
+
+`update install` устанавливает скачанную версию: программа закрывается и запускается снова (см. [Обновление](update.md)).
+
 ### Сервер, блокировки, система, приложение
 
 ```bash

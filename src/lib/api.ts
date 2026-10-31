@@ -14,6 +14,7 @@ import type {
   Settings,
   SystemInfo,
   TlsInfo,
+  UpdateStatus,
 } from "./types";
 
 export class ApiError extends Error {
@@ -55,6 +56,7 @@ export const queryKeys = {
   autostart: ["autostart"] as const,
   tls: ["tls"] as const,
   logsInfo: ["logs-info"] as const,
+  update: ["update"] as const,
 };
 
 export const useKeys = () => useQuery({ queryKey: queryKeys.keys, queryFn: () => call<ApiKey[]>({ op: "keys_list" }) });
@@ -71,6 +73,8 @@ export const useAutostart = () =>
   useQuery({ queryKey: queryKeys.autostart, queryFn: () => call<AutostartStatus>({ op: "autostart_status" }) });
 export const useTlsInfo = () => useQuery({ queryKey: queryKeys.tls, queryFn: () => call<TlsInfo>({ op: "tls_info" }) });
 export const useLogsInfo = () => useQuery({ queryKey: queryKeys.logsInfo, queryFn: () => call<LogsInfo>({ op: "logs_info" }) });
+
+export const useUpdateStatus = () => useQuery({ queryKey: queryKeys.update, queryFn: () => call<UpdateStatus>({ op: "update_status" }) });
 
 /** Mutation that refetches the given queries on success. */
 export function useApiMutation<T>(invalidate: readonly (readonly string[])[] = []) {

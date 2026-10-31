@@ -145,6 +145,26 @@ impl Db {
         Ok(())
     }
 
+    /// Arbitrary JSON state stored next to the settings (e.g. update check results).
+    pub fn get_state<T: serde::de::DeserializeOwned>(&self, key: &str) -> AppResult<Option<T>> {
+        let raw: Option<String> = self
+            .conn()
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        Ok(raw.and_then(|r| serde_json::from_str(&r).ok()))
+    }
+
+    pub fn set_state<T: serde::Serialize>(&self, key: &str, value: &T) -> AppResult<()> {
+        self.conn().execute(
+            "INSERT INTO settings(key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, serde_json::to_string(value).unwrap()],
+        )?;
+        Ok(())
+    }
+
     // ---------- api keys ----------
 
     fn key_from_row(conn: &Connection, r: &Row) -> rusqlite::Result<ApiKey> {

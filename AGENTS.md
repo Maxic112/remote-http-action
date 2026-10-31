@@ -45,11 +45,12 @@
 | `src-tauri/src/logs.rs` | Журналы http/cli/flow в JSON Lines, ротация |
 | `src-tauri/src/tls.rs` | HTTPS: самоподписанный сертификат, загрузка PEM, отпечаток |
 | `src-tauri/src/platform/autostart.rs` | Автозапуск через планировщик заданий |
+| `src-tauri/src/update.rs` | Обновление из релизов GitHub: проверка, скачивание с SHA-256, помощник установки |
 | `src-tauri/src/db.rs` | Схема SQLite, миграции, репозитории |
 | `src-tauri/src/settings.rs` | Настройки, значения по умолчанию, валидация |
 | `src-tauri/src/gui.rs` | Окно, трей, команда `api`, пересылка событий в UI |
 | `src/lib/` | Типы (зеркало Rust-моделей), API-клиент, хелперы |
-| `src/features/` | Страницы: flows, keys, groups, runs, logs, settings |
+| `src/features/` | Страницы: flows, keys, groups, runs, logs, update, settings |
 | `scripts/` | `smoke.ps1` — сквозной тест реального exe; `package-portable.ps1` — портативный zip |
 | `assets/app-icon.svg` | Исходник иконки; набор в `src-tauri/icons/` генерируется `pnpm tauri icon assets/app-icon.svg` |
 | `src/i18n/` | Переводы ru/en (наборы ключей должны совпадать) |

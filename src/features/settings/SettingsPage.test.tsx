@@ -25,6 +25,7 @@ const settings: Settings = {
   },
   cli: { enabled: true },
   app: { close_to_tray: true, language: "system", run_history_limit: 200 },
+  updates: { auto_check: true, feed_url: "" },
   logging: {
     http: { enabled: true, max_file_mb: 5, max_files: 5 },
     cli: { enabled: true, max_file_mb: 5, max_files: 5 },

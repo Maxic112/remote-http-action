@@ -14,6 +14,7 @@
 - [HTTPS](user/https.md)
 - [Автозапуск](user/autostart.md)
 - [Логи](user/logs.md)
+- [Обновление](user/update.md)
 - [Права администратора](user/administrator-rights.md)
 - [Командная строка (CLI)](user/cli.md)
 - [Решение проблем](user/troubleshooting.md)
