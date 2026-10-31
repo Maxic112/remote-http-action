@@ -54,8 +54,12 @@ describe("ActionEditor", () => {
     await user.click(screen.getByRole("button", { name: /Browse/ }));
     expect(screen.getByLabelText("Program")).toHaveValue("");
     await user.type(screen.getByLabelText("Program"), "C:\\Apps\\player.exe");
-    await user.click(screen.getByRole("checkbox", { name: /Wait for it to exit/ }));
-    expect(latest().params).toMatchObject({ path: "C:\\Apps\\player.exe", wait: true });
+    expect(screen.queryByLabelText("Process name")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Wait" }));
+    await user.click(await screen.findByRole("option", { name: "While processes with a given name run" }));
+    expect(screen.getByLabelText("Process name")).toHaveAttribute("placeholder", "player.exe");
+    await user.type(screen.getByLabelText("Process name"), "game.exe");
+    expect(latest().params).toMatchObject({ path: "C:\\Apps\\player.exe", wait: "name", wait_process_name: "game.exe" });
     expect(screen.queryByRole("checkbox", { name: "Return output to the client" })).not.toBeInTheDocument();
   });
 });

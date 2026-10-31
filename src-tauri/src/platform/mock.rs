@@ -51,7 +51,9 @@ pub struct MockPlatform {
     pub power_calls: Mutex<Vec<PowerAction>>,
     pub processes: Mutex<Vec<ProcessSpec>>,
     pub responses: Mutex<VecDeque<MockResponse>>,
-    pub launched: Mutex<Vec<(ProcessSpec, bool)>>,
+    pub launched: Mutex<Vec<(ProcessSpec, LaunchWait)>>,
+    /// Successive answers of `process_count`; the last one repeats.
+    pub process_counts: Mutex<VecDeque<usize>>,
     pub autostart: Mutex<bool>,
 }
 
@@ -108,11 +110,20 @@ impl Platform for MockPlatform {
     async fn launch(
         &self,
         spec: ProcessSpec,
-        wait: bool,
+        wait: LaunchWait,
         _cancel: CancellationToken,
     ) -> AppResult<Option<i32>> {
         self.launched.lock().unwrap().push((spec, wait));
-        Ok(wait.then_some(0))
+        Ok((wait != LaunchWait::None).then_some(0))
+    }
+
+    fn process_count(&self, _name: &str) -> usize {
+        let mut counts = self.process_counts.lock().unwrap();
+        if counts.len() > 1 {
+            counts.pop_front().unwrap()
+        } else {
+            counts.front().copied().unwrap_or(0)
+        }
     }
 
     fn open_folder(&self, _path: &std::path::Path) -> AppResult<()> {

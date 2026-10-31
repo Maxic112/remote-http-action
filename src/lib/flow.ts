@@ -16,7 +16,7 @@ export function defaultParams(type: ActionType, defaultShell = "cmd"): Record<st
     case "run_script":
       return { shell: defaultShell, script_path: "", args: [], working_dir: null };
     case "launch_app":
-      return { path: "", args: [], working_dir: null, wait: false };
+      return { path: "", args: [], working_dir: null, wait: "none" };
   }
 }
 

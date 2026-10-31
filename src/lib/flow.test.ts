@@ -9,7 +9,7 @@ describe("flow helpers", () => {
     expect(newAction("cli_command", "pwsh").params).toEqual({ shell: "pwsh", command: "", working_dir: null });
     expect(newAction("shutdown")).toMatchObject({ on_error: "stop", run_as_admin: false, timeout_sec: null });
     expect(newAction("run_script", "powershell").params).toEqual({ shell: "powershell", script_path: "", args: [], working_dir: null });
-    expect(newAction("launch_app").params).toEqual({ path: "", args: [], working_dir: null, wait: false });
+    expect(newAction("launch_app").params).toEqual({ path: "", args: [], working_dir: null, wait: "none" });
   });
 
   it("matches backend defaults for new flows", () => {

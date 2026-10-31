@@ -112,3 +112,115 @@ pub fn attach_parent_console() {
         }
     }
 }
+
+/// Job object that tracks a process and every process it starts. Closing the handle does not
+/// terminate them.
+pub struct Job(windows::Win32::Foundation::HANDLE);
+
+// The handle is only used through thread-safe kernel calls.
+unsafe impl Send for Job {}
+unsafe impl Sync for Job {}
+
+impl Job {
+    pub fn new() -> AppResult<Self> {
+        use windows::Win32::System::JobObjects::CreateJobObjectW;
+        unsafe { CreateJobObjectW(None, windows::core::PCWSTR::null()) }
+            .map(Job)
+            .map_err(|e| AppError::internal(format!("cannot create job object: {e}")))
+    }
+
+    pub fn assign(&self, process: HANDLE) -> AppResult<()> {
+        use windows::Win32::System::JobObjects::AssignProcessToJobObject;
+        unsafe { AssignProcessToJobObject(self.0, process) }
+            .map_err(|e| AppError::internal(format!("cannot track the process: {e}")))
+    }
+
+    /// Processes in the job that are still running.
+    pub fn active_processes(&self) -> u32 {
+        use windows::Win32::System::JobObjects::{
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,
+            QueryInformationJobObject,
+        };
+        let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        let ok = unsafe {
+            QueryInformationJobObject(
+                Some(self.0),
+                JobObjectBasicAccountingInformation,
+                &mut info as *mut _ as *mut c_void,
+                size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                None,
+            )
+        }
+        .is_ok();
+        if ok { info.ActiveProcesses } else { 0 }
+    }
+}
+
+impl Drop for Job {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
+
+/// Resumes the threads of a process created with `CREATE_SUSPENDED`.
+pub fn resume_process(pid: u32) {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) else {
+            return;
+        };
+        let mut entry = THREADENTRY32 {
+            dwSize: size_of::<THREADENTRY32>() as u32,
+            ..Default::default()
+        };
+        let mut more = Thread32First(snap, &mut entry).is_ok();
+        while more {
+            if entry.th32OwnerProcessID == pid
+                && let Ok(thread) = OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID)
+            {
+                ResumeThread(thread);
+                let _ = CloseHandle(thread);
+            }
+            more = Thread32Next(snap, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snap);
+    }
+}
+
+/// Number of running processes whose executable name equals `name` (case-insensitive).
+pub fn process_count(name: &str) -> usize {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    let wanted = name.trim().to_lowercase();
+    let mut count = 0;
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return 0;
+        };
+        let mut entry = PROCESSENTRY32W {
+            dwSize: size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        let mut more = Process32FirstW(snap, &mut entry).is_ok();
+        while more {
+            let len = entry
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            if String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase() == wanted {
+                count += 1;
+            }
+            more = Process32NextW(snap, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snap);
+    }
+    count
+}

@@ -67,6 +67,17 @@ function ArgsField({ value, onChange }: { value: unknown; onChange: (v: string[]
   );
 }
 
+type WaitMode = "none" | "process" | "tree" | "name";
+
+/** Older flows store `wait` as a boolean. */
+function waitMode(v: unknown): WaitMode {
+  if (v === true) return "process";
+  if (v === "process" || v === "tree" || v === "name") return v;
+  return "none";
+}
+
+const fileName = (path: string) => path.split(/[\\/]/).pop() ?? "";
+
 interface Props {
   action: ActionDef;
   index: number;
@@ -190,7 +201,31 @@ export function ActionEditor({ action, index, count, shells, onChange, onMove, o
               value={String(p.working_dir ?? "")}
               onChange={(v) => setParam("working_dir", v || null)}
             />
-            <CheckboxField label={t("actions.waitExit")} checked={Boolean(p.wait)} onChange={(v) => setParam("wait", v)} />
+            <SelectField
+              label={t("actions.wait")}
+              value={waitMode(p.wait)}
+              options={(["none", "process", "tree", "name"] as const).map((m) => ({ value: m, label: t(`actions.waitModes.${m}`) }))}
+              onChange={(v) => setParam("wait", v)}
+              hint={t(`actions.waitHints.${waitMode(p.wait)}`)}
+            />
+            {waitMode(p.wait) === "name" && (
+              <div className="grid grid-cols-2 gap-3">
+                <TextField
+                  label={t("actions.waitProcessName")}
+                  placeholder={fileName(String(p.path ?? ""))}
+                  value={String(p.wait_process_name ?? "")}
+                  onChange={(v) => setParam("wait_process_name", v || null)}
+                />
+                <NumberField
+                  label={t("actions.waitStartTimeout")}
+                  min={1}
+                  nullable
+                  placeholder="60"
+                  value={(p.wait_start_timeout_sec as number | null | undefined) ?? null}
+                  onChange={(v) => setParam("wait_start_timeout_sec", v)}
+                />
+              </div>
+            )}
           </>
         )}
 

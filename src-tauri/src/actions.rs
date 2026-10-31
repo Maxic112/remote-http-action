@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{AppError, AppResult};
 use crate::model::{ActionDef, StepStatus};
-use crate::platform::{Platform, PowerAction, ProcessSpec};
+use crate::platform::{LaunchWait, Platform, PowerAction, ProcessSpec};
 
 /// Max characters of stdout/stderr kept per step.
 pub const OUTPUT_LIMIT: usize = 16 * 1024;
@@ -93,6 +93,46 @@ pub struct RunScriptParams {
     pub working_dir: Option<String>,
 }
 
+/// What `launch_app` waits for before the next step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WaitMode {
+    /// Continue as soon as the program has started.
+    #[default]
+    None,
+    /// Until the started process exits; a non-zero exit code fails the step.
+    Process,
+    /// Until the started process and all processes it started have exited.
+    Tree,
+    /// Until no process with `wait_process_name` is running (launchers, single-instance apps).
+    Name,
+}
+
+impl<'de> Deserialize<'de> for WaitMode {
+    /// Also accepts the older boolean form: `true` = `process`, `false` = `none`.
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Text(String),
+        }
+        match Raw::deserialize(d)? {
+            Raw::Bool(true) => Ok(WaitMode::Process),
+            Raw::Bool(false) => Ok(WaitMode::None),
+            Raw::Text(t) => match t.as_str() {
+                "none" => Ok(WaitMode::None),
+                "process" => Ok(WaitMode::Process),
+                "tree" => Ok(WaitMode::Tree),
+                "name" => Ok(WaitMode::Name),
+                other => Err(serde::de::Error::custom(format!(
+                    "unknown wait mode \"{other}\" (none, process, tree, name)"
+                ))),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LaunchAppParams {
@@ -102,10 +142,34 @@ pub struct LaunchAppParams {
     /// Defaults to the program's folder.
     #[serde(default)]
     pub working_dir: Option<String>,
-    /// Wait for the program to exit and fail on a non-zero exit code.
     #[serde(default)]
-    pub wait: bool,
+    pub wait: WaitMode,
+    /// For `wait: name`; defaults to the file name of `path`.
+    #[serde(default)]
+    pub wait_process_name: Option<String>,
+    /// For `wait: name`: how long the process may take to appear.
+    #[serde(default)]
+    pub wait_start_timeout_sec: Option<u64>,
 }
+
+impl LaunchAppParams {
+    pub fn process_name(&self) -> String {
+        self.wait_process_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                let path = self.path.trim();
+                path.rsplit(['\\', '/']).next().unwrap_or(path).to_string()
+            })
+    }
+}
+
+/// Polling interval and confirmation count for `wait: name`.
+const NAME_POLL: Duration = Duration::from_secs(1);
+const NAME_GONE_CONFIRMATIONS: u32 = 3;
+const DEFAULT_START_TIMEOUT_SEC: u64 = 60;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ActionParams {
@@ -174,6 +238,16 @@ pub fn parse(def: &ActionDef) -> AppResult<ActionParams> {
             if c.path.trim().is_empty() {
                 return Err(AppError::validation(
                     "launch_app: program path must not be empty",
+                ));
+            }
+            if c.wait == WaitMode::Name && c.process_name().contains(['\\', '/']) {
+                return Err(AppError::validation(
+                    "launch_app: process name must be a file name, e.g. steam.exe",
+                ));
+            }
+            if c.wait_start_timeout_sec == Some(0) {
+                return Err(AppError::validation(
+                    "launch_app: start timeout must be positive",
                 ));
             }
             ActionParams::LaunchApp(c)
@@ -409,6 +483,11 @@ pub async fn execute(
             run_captured(platform, script_command(&p), cancel).await
         }
         ActionParams::LaunchApp(p) => {
+            let name = p.process_name();
+            let start_timeout = p
+                .wait_start_timeout_sec
+                .unwrap_or(DEFAULT_START_TIMEOUT_SEC);
+            let mode = p.wait;
             let path = p.path.trim().to_string();
             if !std::path::Path::new(&path).is_file() {
                 return Outcome::failed(format!("program not found: {path}"));
@@ -423,7 +502,19 @@ pub async fn execute(
                 raw_args: false,
                 working_dir,
             };
-            match platform.launch(spec, p.wait, cancel.clone()).await {
+            let launch_wait = match mode {
+                WaitMode::None | WaitMode::Name => LaunchWait::None,
+                WaitMode::Process => LaunchWait::Process,
+                WaitMode::Tree => LaunchWait::Tree,
+            };
+            let launched = platform.launch(spec, launch_wait, cancel.clone()).await;
+            if mode == WaitMode::Name {
+                return match launched {
+                    Ok(_) => wait_for_name(platform, &name, start_timeout, cancel).await,
+                    Err(e) => Outcome::failed(e.message),
+                };
+            }
+            match launched {
                 Ok(None) => Outcome::success(),
                 Ok(Some(0)) => Outcome {
                     exit_code: Some(0),
@@ -436,6 +527,44 @@ pub async fn execute(
                 Err(_) if cancel.is_cancelled() => Outcome::canceled(),
                 Err(e) => Outcome::failed(e.message),
             }
+        }
+    }
+}
+
+/// Waits until a process named `name` has appeared and then until none is left.
+/// The process counts as gone after several consecutive checks, so a program that restarts
+/// itself (e.g. after an update) is still waited for.
+async fn wait_for_name(
+    platform: &dyn Platform,
+    name: &str,
+    start_timeout_sec: u64,
+    cancel: CancellationToken,
+) -> Outcome {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(start_timeout_sec);
+    while platform.process_count(name) == 0 {
+        if tokio::time::Instant::now() >= deadline {
+            return Outcome::failed(format!(
+                "process {name} did not start within {start_timeout_sec}s"
+            ));
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(NAME_POLL) => {}
+            _ = cancel.cancelled() => return Outcome::canceled(),
+        }
+    }
+    let mut absent = 0;
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(NAME_POLL) => {}
+            _ = cancel.cancelled() => return Outcome::canceled(),
+        }
+        if platform.process_count(name) == 0 {
+            absent += 1;
+            if absent >= NAME_GONE_CONFIRMATIONS {
+                return Outcome::success();
+            }
+        } else {
+            absent = 0;
         }
     }
 }
@@ -746,6 +875,129 @@ mod tests {
         assert_eq!(out.exit_code, Some(0));
         let launched = p.launched.lock().unwrap();
         assert_eq!(launched[0].0.args, vec!["--x"]);
-        assert!(launched[0].1);
+        assert_eq!(launched[0].1, LaunchWait::Process);
+    }
+
+    #[test]
+    fn wait_mode_accepts_old_boolean_form() {
+        let p = |v: serde_json::Value| -> LaunchAppParams { serde_json::from_value(v).unwrap() };
+        assert_eq!(
+            p(json!({"path": "a.exe", "wait": true})).wait,
+            WaitMode::Process
+        );
+        assert_eq!(
+            p(json!({"path": "a.exe", "wait": false})).wait,
+            WaitMode::None
+        );
+        assert_eq!(p(json!({"path": "a.exe"})).wait, WaitMode::None);
+        assert_eq!(
+            p(json!({"path": "a.exe", "wait": "tree"})).wait,
+            WaitMode::Tree
+        );
+        assert!(
+            parse(&def(
+                "launch_app",
+                json!({"path": "a.exe", "wait": "forever"})
+            ))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn process_name_defaults_to_file_name() {
+        let p: LaunchAppParams = serde_json::from_value(
+            json!({"path": r"C:\Program Files (x86)\Steam\steam.exe", "wait": "name"}),
+        )
+        .unwrap();
+        assert_eq!(p.process_name(), "steam.exe");
+        let p: LaunchAppParams = serde_json::from_value(
+            json!({"path": "x.exe", "wait": "name", "wait_process_name": " game.exe "}),
+        )
+        .unwrap();
+        assert_eq!(p.process_name(), "game.exe");
+        assert!(
+            parse(&def(
+                "launch_app",
+                json!({"path": "x.exe", "wait": "name", "wait_process_name": r"C:\a\b.exe"})
+            ))
+            .is_err()
+        );
+    }
+
+    fn app_file() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("steam.exe");
+        std::fs::write(&file, b"").unwrap();
+        let path = file.display().to_string();
+        (dir, path)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_by_name_waits_until_all_processes_are_gone() {
+        let (_dir, path) = app_file();
+        // Not yet started, running (a restart in between), then gone.
+        let p = MockPlatform::default();
+        *p.process_counts.lock().unwrap() = vec![0, 0, 2, 1, 0, 1, 1, 0, 0, 0].into();
+        let started = tokio::time::Instant::now();
+        let out = execute(
+            parse(&def("launch_app", json!({"path": path, "wait": "name"}))).unwrap(),
+            &p,
+            CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(out.status, StepStatus::Success, "{out:?}");
+        assert!(started.elapsed() >= Duration::from_secs(8));
+        assert_eq!(p.launched.lock().unwrap()[0].1, LaunchWait::None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_by_name_fails_if_the_process_never_appears() {
+        let (_dir, path) = app_file();
+        let p = MockPlatform::default();
+        let out = execute(
+            parse(&def(
+                "launch_app",
+                json!({"path": path, "wait": "name", "wait_start_timeout_sec": 5}),
+            ))
+            .unwrap(),
+            &p,
+            CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(out.status, StepStatus::Failed);
+        assert!(out.error.unwrap().contains("did not start within 5s"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_by_name_can_be_canceled() {
+        let (_dir, path) = app_file();
+        let p = MockPlatform::default();
+        *p.process_counts.lock().unwrap() = vec![1].into();
+        let cancel = CancellationToken::new();
+        let c = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            c.cancel();
+        });
+        let out = execute(
+            parse(&def("launch_app", json!({"path": path, "wait": "name"}))).unwrap(),
+            &p,
+            cancel,
+        )
+        .await;
+        assert_eq!(out.status, StepStatus::Canceled);
+    }
+
+    #[tokio::test]
+    async fn tree_mode_is_passed_to_the_platform() {
+        let (_dir, path) = app_file();
+        let p = MockPlatform::default();
+        execute(
+            parse(&def("launch_app", json!({"path": path, "wait": "tree"}))).unwrap(),
+            &p,
+            CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(p.launched.lock().unwrap()[0].1, LaunchWait::Tree);
     }
 }

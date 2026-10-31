@@ -47,6 +47,17 @@ pub struct ShellInfo {
     pub path: String,
 }
 
+/// How `Platform::launch` waits for a started program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchWait {
+    /// Return as soon as the program has started.
+    None,
+    /// Wait for the started process.
+    Process,
+    /// Wait for the started process and every process it starts (Windows job object).
+    Tree,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AutostartStatus {
     pub supported: bool,
@@ -72,14 +83,16 @@ pub trait Platform: Send + Sync {
     fn shells(&self) -> Vec<ShellInfo>;
     /// Starts an elevated copy of the application (UAC prompt). The caller exits afterwards.
     fn relaunch_elevated(&self) -> AppResult<()>;
-    /// Starts a program with its own window. With `wait`, waits for it and returns the exit code;
-    /// otherwise returns as soon as it has started. Killed when `cancel` fires while waiting.
+    /// Starts a program with its own window. While waiting, returns the exit code of the started
+    /// process. `cancel` stops waiting; the program keeps running.
     async fn launch(
         &self,
         spec: ProcessSpec,
-        wait: bool,
+        wait: LaunchWait,
         cancel: CancellationToken,
     ) -> AppResult<Option<i32>>;
+    /// Number of running processes with this executable name (case-insensitive, e.g. `steam.exe`).
+    fn process_count(&self, name: &str) -> usize;
     /// Opens a folder in the file manager.
     fn open_folder(&self, path: &std::path::Path) -> AppResult<()>;
     fn autostart_status(&self) -> AppResult<AutostartStatus>;

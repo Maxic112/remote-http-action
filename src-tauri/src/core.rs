@@ -186,6 +186,8 @@ pub struct Core {
 }
 
 const MAX_NAME_LEN: usize = 200;
+/// Seven days: enough for flows that wait for a long-running program.
+pub const MAX_FLOW_TIMEOUT_SEC: u64 = 7 * 24 * 3600;
 
 fn to_value<T: Serialize>(v: T) -> AppResult<Value> {
     serde_json::to_value(v).map_err(|e| AppError::internal(e.to_string()))
@@ -229,10 +231,10 @@ pub fn validate_flow(mut f: FlowInput) -> AppResult<FlowInput> {
     f.name = clean_name(&f.name, "flow")?;
     f.description = f.description.trim().to_string();
     f.path = normalize_flow_path(&f.path)?;
-    if !(1..=86_400).contains(&f.timeout_sec) {
-        return Err(AppError::validation(
-            "flow timeout must be between 1 and 86400 seconds",
-        ));
+    if !(1..=MAX_FLOW_TIMEOUT_SEC).contains(&f.timeout_sec) {
+        return Err(AppError::validation(format!(
+            "flow timeout must be between 1 and {MAX_FLOW_TIMEOUT_SEC} seconds"
+        )));
     }
     if f.start_delay_sec > 3_600 {
         return Err(AppError::validation(

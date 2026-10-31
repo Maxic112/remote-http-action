@@ -120,7 +120,7 @@ impl Platform for SystemPlatform {
     async fn launch(
         &self,
         spec: ProcessSpec,
-        wait: bool,
+        wait: LaunchWait,
         cancel: CancellationToken,
     ) -> AppResult<Option<i32>> {
         let mut cmd = tokio::process::Command::new(&spec.program);
@@ -131,22 +131,85 @@ impl Platform for SystemPlatform {
         if let Some(dir) = spec.working_dir.as_deref().filter(|d| !d.is_empty()) {
             cmd.current_dir(dir);
         }
+        // For `Tree` the process starts suspended, so it joins the job before it can start
+        // children of its own.
+        #[cfg(windows)]
+        if wait == LaunchWait::Tree {
+            const CREATE_SUSPENDED: u32 = 0x0000_0004;
+            cmd.creation_flags(CREATE_SUSPENDED);
+        }
         let mut child = cmd
             .spawn()
             .map_err(|e| AppError::internal(format!("failed to start {}: {e}", spec.program)))?;
-        if !wait {
+
+        // Cancelling stops the waiting only: the program is left running.
+        let stopped = || AppError::internal("stopped waiting");
+        match wait {
             // Dropping the handle leaves the program running.
-            return Ok(None);
+            LaunchWait::None => Ok(None),
+            #[cfg(windows)]
+            LaunchWait::Tree => {
+                let job = super::win::Job::new();
+                let pid = child.id();
+                let assigned = match (&job, child.raw_handle()) {
+                    (Ok(job), Some(h)) => job.assign(windows::Win32::Foundation::HANDLE(h)).is_ok(),
+                    _ => false,
+                };
+                if let Some(pid) = pid {
+                    super::win::resume_process(pid);
+                }
+                let job = match job {
+                    Ok(job) if assigned => job,
+                    // Without a job only the started process can be waited for.
+                    _ => {
+                        return tokio::select! {
+                            status = child.wait() => Ok(status.ok().and_then(|s| s.code())),
+                            _ = cancel.cancelled() => Err(stopped()),
+                        };
+                    }
+                };
+                loop {
+                    if job.active_processes() == 0 {
+                        return Ok(child.try_wait().ok().flatten().and_then(|s| s.code()));
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+                        _ = cancel.cancelled() => return Err(stopped()),
+                    }
+                }
+            }
+            _ => {
+                tokio::select! {
+                    status = child.wait() => {
+                        let status = status.map_err(|e| AppError::internal(format!("wait failed: {e}")))?;
+                        Ok(status.code())
+                    }
+                    _ = cancel.cancelled() => Err(stopped()),
+                }
+            }
         }
-        tokio::select! {
-            status = child.wait() => {
-                let status = status.map_err(|e| AppError::internal(format!("wait failed: {e}")))?;
-                Ok(status.code())
-            }
-            _ = cancel.cancelled() => {
-                let _ = child.kill().await;
-                Err(AppError::internal("process killed"))
-            }
+    }
+
+    fn process_count(&self, name: &str) -> usize {
+        #[cfg(windows)]
+        {
+            super::win::process_count(name)
+        }
+        #[cfg(not(windows))]
+        {
+            let wanted = name.trim().to_lowercase();
+            std::process::Command::new("ps")
+                .args(["-A", "-o", "comm="])
+                .output()
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .lines()
+                        .filter(|l| {
+                            l.trim().rsplit('/').next().unwrap_or("").to_lowercase() == wanted
+                        })
+                        .count()
+                })
+                .unwrap_or(0)
         }
     }
 
@@ -440,6 +503,74 @@ mod tests {
             .power(PowerAction::Sleep { hibernate: false })
             .await
             .unwrap();
+    }
+
+    /// A launcher: PowerShell starts a hidden child that sleeps 3 s, then exits immediately.
+    fn launcher() -> ProcessSpec {
+        ProcessSpec {
+            program: "powershell.exe".into(),
+            args: vec![
+                "-NoProfile".into(),
+                "-WindowStyle".into(),
+                "Hidden".into(),
+                "-Command".into(),
+                "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 3'".into(),
+            ],
+            raw_args: false,
+            working_dir: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn process_wait_returns_when_the_launcher_exits() {
+        let started = Instant::now();
+        let code = platform()
+            .launch(launcher(), LaunchWait::Process, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(code, Some(0));
+        assert!(
+            started.elapsed() < Duration::from_millis(2900),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn tree_wait_includes_child_processes() {
+        let started = Instant::now();
+        let code = platform()
+            .launch(launcher(), LaunchWait::Tree, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(code, Some(0));
+        assert!(
+            started.elapsed() >= Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_waiting_without_killing() {
+        let cancel = CancellationToken::new();
+        let c = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            c.cancel();
+        });
+        let res = platform()
+            .launch(launcher(), LaunchWait::Tree, cancel)
+            .await;
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn counts_processes_by_name() {
+        let exe = std::env::current_exe().unwrap();
+        let name = exe.file_name().unwrap().to_string_lossy().to_uppercase();
+        assert!(platform().process_count(&name) >= 1);
+        assert_eq!(platform().process_count("no-such-process-rha.exe"), 0);
     }
 
     #[test]
