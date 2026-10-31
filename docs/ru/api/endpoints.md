@@ -142,7 +142,7 @@ GET /status/
 С действующим ключом:
 
 ```json
-{ "status": "ok", "version": "0.1.0", "uptime_sec": 3600, "elevated": true }
+{ "status": "ok", "version": "1.0.0", "uptime_sec": 3600, "elevated": true }
 ```
 
 `elevated` показывает, запущено ли приложение с правами администратора.

@@ -27,7 +27,6 @@ pub struct Ban {
 }
 
 impl BruteForceGuard {
-    /// Remaining ban time, if the address is banned.
     pub fn banned(&self, ip: IpAddr, now: Instant) -> Option<Duration> {
         let entries = self.entries.lock().unwrap();
         entries

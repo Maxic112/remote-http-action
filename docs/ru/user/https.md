@@ -22,7 +22,7 @@
 - **Добавить сертификат в доверенные** на клиентском устройстве (`cert.pem`).
 
 ```bash
-curl -k -X POST https://192.168.1.10:8765/flow/sleep/ -H "Authorization: Bearer rha_..."
+curl -k -X POST https://<host>:8765/flow/sleep/ -H "Authorization: Bearer rha_..."
 ```
 
 ## Новый сертификат

@@ -48,7 +48,6 @@ pub struct ServerStatus {
     pub state: ServerState,
     pub address: Option<String>,
     pub error: Option<String>,
-    /// The server uses HTTPS.
     pub tls: bool,
 }
 

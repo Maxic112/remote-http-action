@@ -33,8 +33,8 @@
 
 ## 3. Документация
 
-- `docs/user/actions.md` — раздел с описанием и параметрами.
-- При изменении трейта `Platform` — `docs/architecture/overview.md`.
+- `docs/en/user/actions.md` и `docs/ru/user/actions.md` — раздел с описанием и параметрами.
+- При изменении трейта `Platform` — `docs/<язык>/architecture/overview.md`.
 
 ## 4. Проверка
 

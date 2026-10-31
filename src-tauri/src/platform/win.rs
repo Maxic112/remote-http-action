@@ -135,7 +135,6 @@ impl Job {
             .map_err(|e| AppError::internal(format!("cannot track the process: {e}")))
     }
 
-    /// Processes in the job that are still running.
     pub fn active_processes(&self) -> u32 {
         use windows::Win32::System::JobObjects::{
             JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,

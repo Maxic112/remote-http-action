@@ -24,7 +24,6 @@ use crate::runner::{RunRequest, Runner};
 use crate::secrets;
 use crate::settings::{CLI_PROTECTED_PATHS, Settings};
 
-/// Who sent a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Caller {
     Ui,
@@ -311,7 +310,6 @@ impl Core {
         self.started.elapsed()
     }
 
-    /// Starts the HTTP server if it is enabled in settings.
     pub async fn start_server_if_enabled(self: &Arc<Self>) {
         if self.settings().server.enabled {
             self.http.start(self.clone()).await;
@@ -390,7 +388,6 @@ impl Core {
         })
     }
 
-    /// Executes a request on behalf of the UI or the CLI.
     pub async fn handle(self: &Arc<Self>, caller: Caller, req: Request) -> AppResult<Value> {
         use Request::*;
         match req {

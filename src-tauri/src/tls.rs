@@ -30,7 +30,6 @@ pub fn self_signed_paths(data_dir: &Path) -> (PathBuf, PathBuf) {
     (dir.join("cert.pem"), dir.join("key.pem"))
 }
 
-/// Certificate and key files used for the given settings.
 pub fn cert_paths(tls: &TlsSettings, data_dir: &Path) -> (PathBuf, PathBuf) {
     match tls.mode {
         TlsMode::SelfSigned => self_signed_paths(data_dir),

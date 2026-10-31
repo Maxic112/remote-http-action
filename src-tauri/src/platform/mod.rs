@@ -70,7 +70,6 @@ pub struct AutostartStatus {
 
 #[async_trait]
 pub trait Platform: Send + Sync {
-    /// Whether the current process runs with administrator rights.
     fn is_elevated(&self) -> bool;
     async fn power(&self, action: PowerAction) -> AppResult<()>;
     /// Runs a process to completion and captures its output. Killed when `cancel` fires.
@@ -93,7 +92,6 @@ pub trait Platform: Send + Sync {
     ) -> AppResult<Option<i32>>;
     /// Number of running processes with this executable name (case-insensitive, e.g. `steam.exe`).
     fn process_count(&self, name: &str) -> usize;
-    /// Opens a folder in the file manager.
     fn open_folder(&self, path: &std::path::Path) -> AppResult<()>;
     fn autostart_status(&self) -> AppResult<AutostartStatus>;
     /// Registers start at logon with administrator rights.
@@ -101,7 +99,6 @@ pub trait Platform: Send + Sync {
     fn autostart_remove(&self) -> AppResult<()>;
 }
 
-/// Searches `PATH` for an executable.
 pub fn find_in_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)

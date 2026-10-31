@@ -1,88 +1,89 @@
 # AGENTS.md
 
-Инструкции для AI-агентов и разработчиков, работающих с репозиторием **remote-http-action**.
-Подробности — в [docs/](docs/index.md), расширенные правила для агентов — в [docs/agents/](docs/agents/index.md).
+Instructions for AI agents and developers working on the **remote-http-action** repository.
+Details are in [docs/en/](docs/en/index.md), extended agent rules in [docs/en/agents/](docs/en/agents/index.md).
 
-## Что это за проект
+## What the project is
 
-Десктопное приложение для Windows (Tauri 2 + React/TypeScript). Приложение держит HTTP-сервер:
-запрос с API-ключом к адресу flow запускает на компьютере заранее настроенную последовательность действий.
-Всё, что доступно в окне, доступно и через CLI (`remote-http-action-cli.exe`).
+A Windows desktop application (Tauri 2 + React/TypeScript). It keeps an HTTP server running:
+a request with an API key to a flow's URL runs a preconfigured sequence of actions on the computer.
+Everything available in the window is also available through the CLI (`remote-http-action-cli.exe`).
 
-## Стек
+## Stack
 
 - Backend: Rust (`src-tauri/`), axum, tokio, rusqlite (SQLite), windows-rs.
-- Frontend: React 19 + TypeScript (`src/`), Vite, Tailwind CSS v4, shadcn/ui на Base UI, TanStack Query, i18next (ru/en).
-- Тесты: `cargo test` (unit и интеграционные), Vitest + Testing Library.
-- Пакетный менеджер: **pnpm**.
+- Frontend: React 19 + TypeScript (`src/`), Vite, Tailwind CSS v4, shadcn/ui on Base UI, TanStack Query, i18next (en/ru).
+- Tests: `cargo test` (unit and integration), Vitest + Testing Library.
+- Package manager: **pnpm**.
 
-## Команды
+## Commands
 
-| Задача | Команда |
+| Task | Command |
 |---|---|
-| Установить зависимости | `pnpm install` |
-| Запуск в режиме разработки | `pnpm tauri dev` |
-| Все проверки типов и тесты | `pnpm test:all` |
-| Линтеры (ESLint, Prettier, rustfmt, clippy) | `pnpm lint` |
-| Автоформатирование | `pnpm format` |
-| Сборка релиза (MSI) | `pnpm tauri build` |
-| Релиз целиком: MSI + портативный zip | `pnpm package` |
-| Выпуск релиза на GitHub | тег `vX.Y.Z`, см. [docs/development/releasing.md](docs/development/releasing.md) |
+| Install dependencies | `pnpm install` |
+| Development mode | `pnpm tauri dev` |
+| All type checks and tests | `pnpm test:all` |
+| Linters (ESLint, Prettier, rustfmt, clippy) | `pnpm lint` |
+| Auto-format | `pnpm format` |
+| Release build (MSI) | `pnpm tauri build` |
+| Full release: MSI + portable zip | `pnpm package` |
+| Publish a release on GitHub | tag `vX.Y.Z`, see [docs/en/development/releasing.md](docs/en/development/releasing.md) |
 
-Перед завершением любой задачи выполняются `pnpm lint` и `pnpm test:all`. Обе команды должны проходить без ошибок.
+Before finishing any task, `pnpm lint` and `pnpm test:all` must pass.
 
-## Карта кода
+## Code map
 
-| Путь | Назначение |
+| Path | Purpose |
 |---|---|
-| `src-tauri/src/core.rs` | `Core` и перечисление `Request`: **единый набор операций** для UI и CLI |
-| `src-tauri/src/http/` | HTTP API: маршрутизация, авторизация, сетевые фильтры, защита от перебора |
-| `src-tauri/src/runner.rs` | Выполнение flow: очередь, cooldown, задержка старта, таймауты, отмена, история |
-| `src-tauri/src/actions.rs` | Типы действий: валидация параметров и исполнение |
-| `src-tauri/src/platform/` | Интеграция с ОС за трейтом `Platform` (реальная реализация и mock для тестов) |
-| `src-tauri/src/ipc.rs`, `cli.rs` | CLI: разбор аргументов, named pipe к запущенному экземпляру |
-| `src-tauri/src/bin/remote-http-action-cli.rs` | Консольный exe для CLI (терминал ждёт его завершения) |
-| `src-tauri/src/headless.rs` | Режим `--headless`: сервер и CLI без окна |
-| `src-tauri/src/logs.rs` | Журналы http/cli/flow в JSON Lines, ротация |
-| `src-tauri/src/tls.rs` | HTTPS: самоподписанный сертификат, загрузка PEM, отпечаток |
-| `src-tauri/src/platform/autostart.rs` | Автозапуск через планировщик заданий |
-| `src-tauri/src/update.rs` | Обновление из релизов GitHub: проверка, скачивание с SHA-256, помощник установки |
-| `src-tauri/src/db.rs` | Схема SQLite, миграции, репозитории |
-| `src-tauri/src/settings.rs` | Настройки, значения по умолчанию, валидация |
-| `src-tauri/src/gui.rs` | Окно, трей, команда `api`, пересылка событий в UI |
-| `src/lib/` | Типы (зеркало Rust-моделей), API-клиент, хелперы |
-| `src/features/` | Страницы: flows, keys, groups, runs, logs, update, settings |
-| `scripts/` | `smoke.ps1` — сквозной тест реального exe; `package-portable.ps1` — портативный zip |
-| `assets/app-icon.svg` | Исходник иконки; набор в `src-tauri/icons/` генерируется `pnpm tauri icon assets/app-icon.svg` |
-| `src/i18n/` | Переводы ru/en (наборы ключей должны совпадать) |
+| `src-tauri/src/core.rs` | `Core` and the `Request` enum: **the single set of operations** for the UI and the CLI |
+| `src-tauri/src/http/` | HTTP API: routing, authentication, network filters, brute-force protection |
+| `src-tauri/src/runner.rs` | Flow execution: queue, cooldown, start delay, timeouts, cancellation, history |
+| `src-tauri/src/actions.rs` | Action types: parameter validation and execution |
+| `src-tauri/src/platform/` | OS integration behind the `Platform` trait (real implementation and a test mock) |
+| `src-tauri/src/ipc.rs`, `cli.rs` | CLI: argument parsing, named pipe to the running instance |
+| `src-tauri/src/bin/remote-http-action-cli.rs` | Console executable for the CLI (terminals wait for it) |
+| `src-tauri/src/headless.rs` | `--headless` mode: server and CLI without a window |
+| `src-tauri/src/logs.rs` | http/cli/flow logs in JSON Lines, rotation |
+| `src-tauri/src/tls.rs` | HTTPS: self-signed certificate, PEM loading, fingerprint |
+| `src-tauri/src/platform/autostart.rs` | Autostart through Task Scheduler |
+| `src-tauri/src/update.rs` | Updates from GitHub releases: check, SHA-256 verified download, install helper |
+| `src-tauri/src/db.rs` | SQLite schema, migrations, repositories |
+| `src-tauri/src/settings.rs` | Settings, defaults, validation |
+| `src-tauri/src/gui.rs` | Window, tray, `api` command, event forwarding to the UI |
+| `src/lib/` | Types (mirror of the Rust models), API client, helpers |
+| `src/features/` | Pages: flows, keys, groups, runs, logs, update, settings |
+| `src/i18n/` | en/ru translations (key sets must match) |
+| `scripts/` | `smoke.ps1` end-to-end test of the real executable; packaging and release scripts |
+| `assets/app-icon.svg` | Icon source; `src-tauri/icons/` is generated with `pnpm tauri icon assets/app-icon.svg` |
 
-## Обязательные правила
+## Rules
 
-1. **Паритет UI и CLI.** Новая пользовательская операция добавляется как вариант `Request` в `core.rs`.
-   Затем она получает CLI-команду в `cli.rs` и вызов из UI через `call()`. Логику в UI и CLI не дублировать.
-2. **Тесты к каждой фиче.** Rust: unit-тесты рядом с кодом, сценарии HTTP — в `src-tauri/src/http/tests.rs`.
-   Frontend: `*.test.ts(x)` рядом с компонентом. Действия ОС тестируются только через `MockPlatform`.
-   Тесты не должны выключать, перезагружать или усыплять машину.
-3. **Документация вместе с кодом.** Любое изменение поведения сопровождается правкой соответствующего раздела `docs/`.
-   Если меняются правила работы с репозиторием, обновляется и этот файл.
-4. **Стиль документации — как у самостоятельного продукта.** Без упоминаний процесса разработки, конкретных машин, сетей и дат проверки.
-5. **Безопасность.**
-   - В журналы не пишутся секреты: в HTTP-журнале — имя ключа, в CLI-журнале — только запросы.
-   - Секреты API-ключей не хранятся (только SHA-256), не логируются и не возвращаются списками.
-   - Через CLI нельзя менять настройку `cli.*`.
-   - Новые эндпоинты требуют ключ, если нет явной причины обратного.
-6. **Синхронизация типов.** Изменения в моделях Rust (`model.rs`, `settings.rs`, `Request`) повторяются в `src/lib/types.ts`.
-7. **Переводы.** Новые строки UI добавляются в `src/i18n/ru.ts` и `src/i18n/en.ts` одновременно; тест проверяет совпадение ключей.
-8. **Новые действия** добавляются по инструкции [docs/development/adding-action.md](docs/development/adding-action.md).
-9. **Релизы.** Версия в `package.json`, `Cargo.toml`, `tauri.conf.json` совпадает; каждая версия описана в `CHANGELOG.md`.
-   Имена файлов релиза и `SHA256SUMS.txt` — контракт с механизмом обновления, их не менять.
-10. **Git.** Ветка `main`, сообщения в стиле Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
+1. **UI and CLI parity.** A new user operation is added as a `Request` variant in `core.rs`,
+   then gets a CLI command in `cli.rs` and a UI call through `call()`. Logic is never duplicated in the UI or the CLI.
+2. **Tests for every feature.** Rust: unit tests next to the code, HTTP scenarios in `src-tauri/src/http/tests.rs`.
+   Frontend: `*.test.ts(x)` next to the component. OS actions are tested only through `MockPlatform`.
+   Tests must never shut down, restart or suspend the machine.
+3. **Documentation with the code.** Every behaviour change updates the matching pages in both `docs/en/` and `docs/ru/`.
+   If the repository rules change, this file is updated too.
+4. **Documentation reads like a standalone product.** No references to the development process, specific machines, networks or test dates.
+5. **Code comments** are in English and only explain what is not obvious from the code.
+6. **Security.**
+   - No secrets in logs: the HTTP log has the key name, the CLI log only requests.
+   - API key secrets are never stored (only SHA-256), logged or returned by list operations.
+   - The CLI cannot change `cli.*` settings.
+   - New endpoints require a key unless there is an explicit reason not to.
+7. **Type sync.** Changes to the Rust models (`model.rs`, `settings.rs`, `Request`) are repeated in `src/lib/types.ts`.
+8. **Translations.** New UI strings go into `src/i18n/en.ts` and `src/i18n/ru.ts` together; a test checks that the keys match.
+9. **New actions** follow [docs/en/development/adding-action.md](docs/en/development/adding-action.md).
+10. **Releases.** The version in `package.json`, `Cargo.toml` and `tauri.conf.json` matches; every version has an English entry in `CHANGELOG.md`.
+    Release file names and `SHA256SUMS.txt` are a contract with the updater and must not change.
+11. **Git.** Branch `main`, Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `ci:`).
 
-## Документация
+## Documentation
 
-- [docs/index.md](docs/index.md) — оглавление.
-- [docs/user/](docs/user/index.md) — руководство пользователя.
-- [docs/api/](docs/api/index.md) — HTTP API.
-- [docs/architecture/](docs/architecture/index.md) — устройство приложения.
-- [docs/development/](docs/development/index.md) — сборка, тесты, соглашения.
-- [docs/agents/](docs/agents/index.md) — расширенные правила для агентов.
+- [docs/en/index.md](docs/en/index.md) — contents ([Russian](docs/ru/index.md)).
+- [docs/en/user/](docs/en/user/index.md) — user guide.
+- [docs/en/api/](docs/en/api/index.md) — HTTP API.
+- [docs/en/architecture/](docs/en/architecture/index.md) — design.
+- [docs/en/development/](docs/en/development/index.md) — builds, tests, conventions, releasing.
+- [docs/en/agents/](docs/en/agents/index.md) — extended rules for agents.

@@ -123,7 +123,6 @@ try {
     $main = & $Exe keys list --json 2>&1 | Out-String
     Check "main executable also accepts CLI commands" ($LASTEXITCODE -eq 0 -and $main -like "*phone*") $main
 
-    # --- Scripts ---
     $script = Join-Path $data "job.ps1"
     Set-Content -Encoding UTF8 $script 'param($Name) Write-Output "script says $Name"; exit 0'
     @{
@@ -136,7 +135,6 @@ try {
     $r = Rha flows run script --wait
     Check "run_script passes arguments and captures output" ($r.Json.status -eq "success" -and $r.Json.steps[0].stdout -like "*script says Мир*") $r.Raw
 
-    # --- Logs ---
     $log = Rha logs tail http --limit 50
     $logText = $log.Raw
     Check "HTTP log records requests with key name" ($log.Code -eq 0 -and $logText -like '*"key": "phone"*') $logText
@@ -148,7 +146,6 @@ try {
     $info = Rha logs info
     Check "logs info lists three categories" ($info.Json.categories.Count -eq 3) $info.Raw
 
-    # --- HTTPS ---
     $r = Rha settings set server.tls.enabled true
     Check "enable HTTPS" ($r.Code -eq 0) $r.Raw
     Start-Sleep -Milliseconds 800
@@ -168,7 +165,7 @@ try {
     $s = Http GET "/status/" $null
     Check "back to HTTP" ($s.Status -eq 200)
 
-    # --- Autostart (status only; installing needs administrator rights and changes the system) ---
+    # Autostart: status only, installing needs administrator rights and changes the system.
     $a = Rha autostart status
     Check "autostart status" ($a.Code -eq 0 -and $null -ne $a.Json.installed) $a.Raw
 

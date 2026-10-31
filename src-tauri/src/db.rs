@@ -113,8 +113,6 @@ impl Db {
         Ok(())
     }
 
-    // ---------- settings ----------
-
     /// Loads settings; on first start stores and returns the defaults.
     pub fn load_settings(&self) -> AppResult<Settings> {
         let conn = self.conn();
@@ -164,8 +162,6 @@ impl Db {
         )?;
         Ok(())
     }
-
-    // ---------- api keys ----------
 
     fn key_from_row(conn: &Connection, r: &Row) -> rusqlite::Result<ApiKey> {
         let id: Id = r.get("id")?;
@@ -294,8 +290,6 @@ impl Db {
         delete_by_id(&self.conn(), "api_keys", id, "API key")
     }
 
-    // ---------- groups ----------
-
     fn group_from_row(conn: &Connection, r: &Row) -> rusqlite::Result<AccessGroup> {
         let id: Id = r.get("id")?;
         Ok(AccessGroup {
@@ -391,8 +385,6 @@ impl Db {
         delete_by_id(&self.conn(), "access_groups", id, "group")
     }
 
-    // ---------- flows ----------
-
     fn flow_from_row(r: &Row) -> rusqlite::Result<Flow> {
         let data: String = r.get("data")?;
         let input: FlowInput = serde_json::from_str(&data).unwrap_or_default();
@@ -473,8 +465,6 @@ impl Db {
         )
         .map_err(Into::into)
     }
-
-    // ---------- runs ----------
 
     fn run_from_row(r: &Row) -> rusqlite::Result<Run> {
         let steps: String = r.get("steps")?;

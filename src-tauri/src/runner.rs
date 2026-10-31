@@ -247,7 +247,6 @@ impl Runner {
         }
     }
 
-    /// Cancels a pending, delayed or running run.
     pub fn cancel(&self, run_id: &str, force: bool) -> AppResult<()> {
         let st = self.state();
         let active = st
