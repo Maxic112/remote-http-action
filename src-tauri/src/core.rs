@@ -16,6 +16,7 @@ use crate::error::{AppError, AppResult, ErrorCode};
 use crate::events::{AppEvent, EventSink};
 use crate::http::HttpServer;
 use crate::http::guard::BruteForceGuard;
+use crate::logs::{LogCategory, Logger};
 use crate::model::*;
 use crate::paths::AppPaths;
 use crate::platform::Platform;
@@ -137,6 +138,24 @@ pub enum Request {
     AppShow,
     AppQuit,
     AppRestartElevated,
+    LogsInfo,
+    LogsRead {
+        category: LogCategory,
+        #[serde(default)]
+        limit: Option<usize>,
+        #[serde(default)]
+        query: Option<String>,
+    },
+    LogsClear {
+        category: LogCategory,
+    },
+    LogsOpenFolder,
+    AutostartStatus,
+    AutostartInstall,
+    AutostartRemove,
+    TlsInfo,
+    /// Replaces the self-signed certificate and restarts an HTTPS server.
+    TlsRegenerate,
 }
 
 /// UI-level operations implemented by the GUI shell.
@@ -162,6 +181,7 @@ pub struct Core {
     pub events: Arc<dyn EventSink>,
     pub control: Arc<dyn AppControl>,
     pub paths: AppPaths,
+    pub logs: Arc<Logger>,
     started: Instant,
 }
 
@@ -246,10 +266,15 @@ impl Core {
     ) -> AppResult<Arc<Self>> {
         let settings = db.load_settings()?;
         db.fail_interrupted_runs()?;
+        let logs = Arc::new(Logger::new(
+            paths.data_dir.join("logs"),
+            settings.logging.clone(),
+        ));
         let runner = Arc::new(Runner::new(
             db.clone(),
             platform.clone(),
             events.clone(),
+            logs.clone(),
             settings.app.run_history_limit,
         ));
         Ok(Arc::new(Self {
@@ -262,6 +287,7 @@ impl Core {
             events,
             control,
             paths,
+            logs,
             started: Instant::now(),
         }))
     }
@@ -288,12 +314,17 @@ impl Core {
         self.db.save_settings(&new)?;
         *self.settings.write().unwrap() = new.clone();
         self.runner.set_history_limit(new.app.run_history_limit);
+        self.logs.set_settings(new.logging.clone());
         let (o, n) = (&old.server, &new.server);
         if !n.enabled {
             if o.enabled {
                 self.http.stop(self).await;
             }
-        } else if !o.enabled || o.bind_address != n.bind_address || o.port != n.port {
+        } else if !o.enabled
+            || o.bind_address != n.bind_address
+            || o.port != n.port
+            || o.tls != n.tls
+        {
             self.http.start(self.clone()).await;
         }
         self.changed("settings");
@@ -562,6 +593,55 @@ impl Core {
                 self.control.quit();
                 Ok(json!({ "ok": true }))
             }
+
+            LogsInfo => Ok(json!({
+                "dir": self.logs.dir(),
+                "categories": self.logs.info(),
+            })),
+            LogsRead {
+                category,
+                limit,
+                query,
+            } => {
+                let limit = limit.unwrap_or(200).clamp(1, 5000);
+                to_value(self.logs.read(category, limit, query.as_deref())?)
+            }
+            LogsClear { category } => {
+                self.logs.clear(category)?;
+                Ok(json!({ "cleared": category }))
+            }
+            LogsOpenFolder => {
+                self.platform.open_folder(self.logs.dir())?;
+                Ok(json!({ "ok": true }))
+            }
+
+            AutostartStatus => to_value(self.platform.autostart_status()?),
+            AutostartInstall => {
+                self.platform.autostart_install()?;
+                to_value(self.platform.autostart_status()?)
+            }
+            AutostartRemove => {
+                self.platform.autostart_remove()?;
+                to_value(self.platform.autostart_status()?)
+            }
+
+            TlsInfo => to_value(crate::tls::info(
+                &self.settings().server.tls,
+                &self.paths.data_dir,
+            )),
+            TlsRegenerate => {
+                let s = self.settings().server;
+                if s.tls.mode != crate::settings::TlsMode::SelfSigned {
+                    return Err(AppError::validation(
+                        "only the self-signed certificate can be regenerated",
+                    ));
+                }
+                crate::tls::generate_self_signed(&self.paths.data_dir)?;
+                if s.enabled && s.tls.enabled {
+                    self.http.start(self.clone()).await;
+                }
+                to_value(crate::tls::info(&s.tls, &self.paths.data_dir))
+            }
         }
     }
 }
@@ -574,7 +654,9 @@ pub mod tests {
 
     pub fn core_with(platform: MockPlatform) -> Arc<Core> {
         let db = Arc::new(Db::open_in_memory().unwrap());
-        let paths = AppPaths::at(std::path::Path::new("."), false);
+        // Each test core gets its own data folder (logs, certificates).
+        let dir = tempfile::tempdir().unwrap().keep();
+        let paths = AppPaths::at(&dir, false);
         Core::new(
             db,
             Arc::new(platform),

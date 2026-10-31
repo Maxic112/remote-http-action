@@ -12,6 +12,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 
 use crate::core::{Caller, Core, Request};
 use crate::error::{AppError, AppResult, ErrorCode};
+use crate::logs::LogCategory;
 
 const MAX_MESSAGE: u64 = 4 * 1024 * 1024;
 
@@ -42,13 +43,28 @@ impl IpcResponse {
 
 /// Executes a CLI request, honouring the "CLI access" setting.
 pub async fn dispatch(core: &Arc<Core>, req: IpcRequest) -> AppResult<Value> {
-    if !core.settings().cli.enabled {
-        return Err(AppError::new(
+    let started = std::time::Instant::now();
+    let request = serde_json::to_value(&req.request).unwrap_or_default();
+    let result = if core.settings().cli.enabled {
+        core.handle(Caller::Cli, req.request).await
+    } else {
+        Err(AppError::new(
             ErrorCode::CliDisabled,
             "CLI access is disabled. Enable it in Settings → CLI in the application window.",
-        ));
-    }
-    core.handle(Caller::Cli, req.request).await
+        ))
+    };
+    // Requests never contain key secrets; responses (which may) are not logged.
+    core.logs.write(
+        LogCategory::Cli,
+        serde_json::json!({
+            "op": request.get("op"),
+            "request": request,
+            "ok": result.is_ok(),
+            "error": result.as_ref().err(),
+            "duration_ms": started.elapsed().as_millis() as u64,
+        }),
+    );
+    result
 }
 
 async fn serve_connection<S: AsyncRead + AsyncWrite + Unpin>(core: Arc<Core>, stream: S) {
@@ -304,6 +320,41 @@ mod tests {
         .unwrap();
         assert_eq!(resp.error.unwrap().code, ErrorCode::CliDisabled);
         assert!(!core.settings().cli.enabled);
+    }
+
+    #[tokio::test]
+    async fn cli_commands_are_logged_without_secrets() {
+        let core = core_with(MockPlatform::default());
+        set_cli(&core, true).await;
+        let issued = dispatch(
+            &core,
+            IpcRequest {
+                request: Request::KeyCreate {
+                    name: "cli".into(),
+                    group_ids: vec![],
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let secret = issued["secret"].as_str().unwrap().to_string();
+        let _ = dispatch(
+            &core,
+            IpcRequest {
+                request: Request::KeyDelete { id: 999 },
+            },
+        )
+        .await;
+        let entries = core
+            .logs
+            .read(crate::logs::LogCategory::Cli, 10, None)
+            .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["op"], "key_delete");
+        assert_eq!(entries[0]["ok"], false);
+        assert_eq!(entries[0]["error"]["code"], "NOT_FOUND");
+        assert_eq!(entries[1]["op"], "key_create");
+        assert!(!serde_json::to_string(&entries).unwrap().contains(&secret));
     }
 
     #[tokio::test]

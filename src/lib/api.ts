@@ -1,7 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { AccessGroup, ApiKey, Ban, Flow, Request, Run, ServerStatus, Settings, SystemInfo } from "./types";
+import type {
+  AccessGroup,
+  ApiKey,
+  AutostartStatus,
+  Ban,
+  Flow,
+  LogsInfo,
+  Request,
+  Run,
+  ServerStatus,
+  Settings,
+  SystemInfo,
+  TlsInfo,
+} from "./types";
 
 export class ApiError extends Error {
   code: string;
@@ -39,6 +52,9 @@ export const queryKeys = {
   server: ["server"] as const,
   system: ["system"] as const,
   bans: ["bans"] as const,
+  autostart: ["autostart"] as const,
+  tls: ["tls"] as const,
+  logsInfo: ["logs-info"] as const,
 };
 
 export const useKeys = () => useQuery({ queryKey: queryKeys.keys, queryFn: () => call<ApiKey[]>({ op: "keys_list" }) });
@@ -50,6 +66,11 @@ export const useServerStatus = () => useQuery({ queryKey: queryKeys.server, quer
 export const useSystemInfo = () => useQuery({ queryKey: queryKeys.system, queryFn: () => call<SystemInfo>({ op: "system_info" }) });
 export const useBans = () =>
   useQuery({ queryKey: queryKeys.bans, queryFn: () => call<Ban[]>({ op: "bans_list" }), refetchInterval: 15_000 });
+
+export const useAutostart = () =>
+  useQuery({ queryKey: queryKeys.autostart, queryFn: () => call<AutostartStatus>({ op: "autostart_status" }) });
+export const useTlsInfo = () => useQuery({ queryKey: queryKeys.tls, queryFn: () => call<TlsInfo>({ op: "tls_info" }) });
+export const useLogsInfo = () => useQuery({ queryKey: queryKeys.logsInfo, queryFn: () => call<LogsInfo>({ op: "logs_info" }) });
 
 /** Mutation that refetches the given queries on success. */
 export function useApiMutation<T>(invalidate: readonly (readonly string[])[] = []) {

@@ -10,6 +10,9 @@
 - [Действия](user/actions.md)
 - [Запуски и отмена](user/runs.md)
 - [Настройки](user/settings.md)
+- [HTTPS](user/https.md)
+- [Автозапуск](user/autostart.md)
+- [Логи](user/logs.md)
 - [Права администратора](user/administrator-rights.md)
 - [Командная строка (CLI)](user/cli.md)
 

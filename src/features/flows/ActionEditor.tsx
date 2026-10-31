@@ -1,10 +1,71 @@
-import { ArrowDownIcon, ArrowUpIcon, ShieldIcon, Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, FolderOpenIcon, ShieldIcon, Trash2Icon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CheckboxField, Field, NumberField, SelectField, TextField } from "@/components/common";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { linesToList, listToLines } from "@/lib/flow";
+import { notifyError } from "@/lib/notify";
+import { type FileFilter, pickFile } from "@/lib/pickFile";
 import type { ActionDef, ShellInfo } from "@/lib/types";
+
+const SCRIPT_EXTENSIONS: Record<string, string[]> = {
+  cmd: ["bat", "cmd"],
+  powershell: ["ps1"],
+  pwsh: ["ps1"],
+  wsl: ["sh"],
+  sh: ["sh"],
+};
+
+/** Text input with a "Browse…" button that opens the system file picker. */
+function PathField({
+  label,
+  value,
+  onChange,
+  filters,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  filters: FileFilter[];
+}) {
+  const { t } = useTranslation();
+  return (
+    <Field label={label}>
+      <div className="flex gap-2">
+        <Input aria-label={label} className="font-mono text-xs" value={value} onChange={(e) => onChange(e.target.value)} />
+        <Button
+          variant="outline"
+          onClick={() =>
+            pickFile(filters)
+              .then((path) => path && onChange(path))
+              .catch(notifyError)
+          }
+        >
+          <FolderOpenIcon />
+          {t("actions.browse")}
+        </Button>
+      </div>
+    </Field>
+  );
+}
+
+function ArgsField({ value, onChange }: { value: unknown; onChange: (v: string[]) => void }) {
+  const { t } = useTranslation();
+  const list = Array.isArray(value) ? (value as string[]) : [];
+  return (
+    <Field label={t("actions.args")} hint={t("actions.argsHint")}>
+      <Textarea
+        aria-label={t("actions.args")}
+        className="font-mono text-xs"
+        rows={2}
+        defaultValue={listToLines(list)}
+        onChange={(e) => onChange(linesToList(e.target.value))}
+      />
+    </Field>
+  );
+}
 
 interface Props {
   action: ActionDef;
@@ -88,6 +149,50 @@ export function ActionEditor({ action, index, count, shells, onChange, onMove, o
             />
           </>
         )}
+        {action.type === "run_script" && (
+          <>
+            <SelectField
+              label={t("actions.shell")}
+              value={String(p.shell ?? "cmd")}
+              options={shellOptions}
+              onChange={(v) => setParam("shell", v)}
+            />
+            <PathField
+              label={t("actions.scriptPath")}
+              value={String(p.script_path ?? "")}
+              onChange={(v) => setParam("script_path", v)}
+              filters={[
+                { name: t("actions.scriptFiles"), extensions: SCRIPT_EXTENSIONS[String(p.shell)] ?? ["*"] },
+                { name: t("actions.allFiles"), extensions: ["*"] },
+              ]}
+            />
+            <ArgsField value={p.args} onChange={(v) => setParam("args", v)} />
+            <TextField
+              label={t("actions.workingDir")}
+              hint={t("actions.workingDirScriptHint")}
+              value={String(p.working_dir ?? "")}
+              onChange={(v) => setParam("working_dir", v || null)}
+            />
+          </>
+        )}
+        {action.type === "launch_app" && (
+          <>
+            <PathField
+              label={t("actions.appPath")}
+              value={String(p.path ?? "")}
+              onChange={(v) => setParam("path", v)}
+              filters={[{ name: t("actions.programs"), extensions: ["exe", "bat", "cmd"] }]}
+            />
+            <ArgsField value={p.args} onChange={(v) => setParam("args", v)} />
+            <TextField
+              label={t("actions.workingDir")}
+              hint={t("actions.workingDirAppHint")}
+              value={String(p.working_dir ?? "")}
+              onChange={(v) => setParam("working_dir", v || null)}
+            />
+            <CheckboxField label={t("actions.waitExit")} checked={Boolean(p.wait)} onChange={(v) => setParam("wait", v)} />
+          </>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <SelectField
@@ -115,7 +220,7 @@ export function ActionEditor({ action, index, count, shells, onChange, onMove, o
             checked={action.run_as_admin}
             onChange={(v) => onChange({ ...action, run_as_admin: v })}
           />
-          {action.type === "cli_command" && (
+          {(action.type === "cli_command" || action.type === "run_script") && (
             <CheckboxField
               label={t("actions.captureOutput")}
               checked={action.capture_output}

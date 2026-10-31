@@ -44,6 +44,14 @@ pub const ACTION_TYPES: &[ActionTypeInfo] = &[
         id: "cli_command",
         admin_hint: false,
     },
+    ActionTypeInfo {
+        id: "run_script",
+        admin_hint: false,
+    },
+    ActionTypeInfo {
+        id: "launch_app",
+        admin_hint: false,
+    },
 ];
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -73,6 +81,32 @@ pub struct CliCommandParams {
     pub working_dir: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunScriptParams {
+    pub shell: String,
+    pub script_path: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Defaults to the script's folder.
+    #[serde(default)]
+    pub working_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LaunchAppParams {
+    pub path: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Defaults to the program's folder.
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    /// Wait for the program to exit and fail on a non-zero exit code.
+    #[serde(default)]
+    pub wait: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ActionParams {
     Delay(DelayParams),
@@ -80,6 +114,8 @@ pub enum ActionParams {
     Reboot(PowerParams),
     Sleep(SleepParams),
     CliCommand(CliCommandParams),
+    RunScript(RunScriptParams),
+    LaunchApp(LaunchAppParams),
 }
 
 pub const SHELLS: &[&str] = &["cmd", "powershell", "pwsh", "wsl", "sh"];
@@ -117,6 +153,30 @@ pub fn parse(def: &ActionDef) -> AppResult<ActionParams> {
                 ));
             }
             ActionParams::CliCommand(c)
+        }
+        "run_script" => {
+            let c: RunScriptParams = serde_json::from_value(p).map_err(bad)?;
+            if !SHELLS.contains(&c.shell.as_str()) {
+                return Err(AppError::validation(format!(
+                    "run_script: unknown shell \"{}\"",
+                    c.shell
+                )));
+            }
+            if c.script_path.trim().is_empty() {
+                return Err(AppError::validation(
+                    "run_script: script path must not be empty",
+                ));
+            }
+            ActionParams::RunScript(c)
+        }
+        "launch_app" => {
+            let c: LaunchAppParams = serde_json::from_value(p).map_err(bad)?;
+            if c.path.trim().is_empty() {
+                return Err(AppError::validation(
+                    "launch_app: program path must not be empty",
+                ));
+            }
+            ActionParams::LaunchApp(c)
         }
         other => {
             return Err(AppError::validation(format!(
@@ -173,6 +233,93 @@ pub fn shell_command(shell: &str, command: &str, working_dir: Option<String>) ->
             false,
         ),
     };
+    ProcessSpec {
+        program,
+        args,
+        raw_args,
+        working_dir,
+    }
+}
+
+/// Quotes one argument for a `cmd.exe` command line.
+fn quote_cmd_arg(arg: &str) -> String {
+    let needs = arg.is_empty()
+        || arg
+            .chars()
+            .any(|c| c.is_whitespace() || "&|<>^\"(),;=".contains(c));
+    if needs {
+        format!("\"{}\"", arg.replace('"', "\"\""))
+    } else {
+        arg.to_string()
+    }
+}
+
+/// `C:\dir\file.sh` → `/mnt/c/dir/file.sh`; other paths are returned unchanged.
+pub fn to_wsl_path(path: &str) -> String {
+    let b = path.as_bytes();
+    if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
+    {
+        let drive = (b[0] as char).to_ascii_lowercase();
+        format!("/mnt/{drive}/{}", path[3..].replace('\\', "/"))
+    } else {
+        path.to_string()
+    }
+}
+
+fn parent_dir(path: &str) -> Option<String> {
+    std::path::Path::new(path)
+        .parent()
+        .map(|p| p.display().to_string())
+        .filter(|p| !p.is_empty())
+}
+
+/// Builds the process invocation for a script file.
+pub fn script_command(p: &RunScriptParams) -> ProcessSpec {
+    let path = p.script_path.trim();
+    let (program, args, raw_args) = match p.shell.as_str() {
+        "cmd" => {
+            let mut line = quote_cmd_arg(path);
+            for a in &p.args {
+                line.push(' ');
+                line.push_str(&quote_cmd_arg(a));
+            }
+            (
+                "cmd.exe".to_string(),
+                vec!["/D".into(), "/S".into(), "/C".into(), format!("\"{line}\"")],
+                true,
+            )
+        }
+        "powershell" | "pwsh" => {
+            let mut args: Vec<String> = [
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                path,
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            args.extend(p.args.iter().cloned());
+            (format!("{}.exe", p.shell), args, false)
+        }
+        "wsl" => {
+            let mut args = vec!["--exec".into(), "sh".into(), to_wsl_path(path)];
+            args.extend(p.args.iter().cloned());
+            ("wsl.exe".to_string(), args, false)
+        }
+        _ => {
+            let mut args = vec![path.to_string()];
+            args.extend(p.args.iter().cloned());
+            ("sh".to_string(), args, false)
+        }
+    };
+    let working_dir = p
+        .working_dir
+        .clone()
+        .filter(|d| !d.trim().is_empty())
+        .or_else(|| (p.shell != "wsl").then(|| parent_dir(path)).flatten());
     ProcessSpec {
         program,
         args,
@@ -253,32 +400,75 @@ pub async fn execute(
         }
         ActionParams::CliCommand(c) => {
             let spec = shell_command(&c.shell, &c.command, c.working_dir);
-            match platform.run_process(spec, cancel.clone()).await {
-                Ok(out) => {
-                    let ok = out.exit_code == Some(0);
-                    Outcome {
-                        status: if ok {
-                            StepStatus::Success
-                        } else {
-                            StepStatus::Failed
-                        },
-                        exit_code: out.exit_code,
-                        stdout: Some(truncate(out.stdout)),
-                        stderr: Some(truncate(out.stderr)),
-                        error: if ok {
-                            None
-                        } else {
-                            Some(match out.exit_code {
-                                Some(c) => format!("exit code {c}"),
-                                None => "terminated by signal".into(),
-                            })
-                        },
-                    }
-                }
+            run_captured(platform, spec, cancel).await
+        }
+        ActionParams::RunScript(p) => {
+            if p.shell != "wsl" && !std::path::Path::new(p.script_path.trim()).is_file() {
+                return Outcome::failed(format!("script not found: {}", p.script_path.trim()));
+            }
+            run_captured(platform, script_command(&p), cancel).await
+        }
+        ActionParams::LaunchApp(p) => {
+            let path = p.path.trim().to_string();
+            if !std::path::Path::new(&path).is_file() {
+                return Outcome::failed(format!("program not found: {path}"));
+            }
+            let working_dir = p
+                .working_dir
+                .filter(|d| !d.trim().is_empty())
+                .or_else(|| parent_dir(&path));
+            let spec = ProcessSpec {
+                program: path,
+                args: p.args,
+                raw_args: false,
+                working_dir,
+            };
+            match platform.launch(spec, p.wait, cancel.clone()).await {
+                Ok(None) => Outcome::success(),
+                Ok(Some(0)) => Outcome {
+                    exit_code: Some(0),
+                    ..Outcome::success()
+                },
+                Ok(Some(code)) => Outcome {
+                    exit_code: Some(code),
+                    ..Outcome::failed(format!("exit code {code}"))
+                },
                 Err(_) if cancel.is_cancelled() => Outcome::canceled(),
                 Err(e) => Outcome::failed(e.message),
             }
         }
+    }
+}
+
+async fn run_captured(
+    platform: &dyn Platform,
+    spec: ProcessSpec,
+    cancel: CancellationToken,
+) -> Outcome {
+    match platform.run_process(spec, cancel.clone()).await {
+        Ok(out) => {
+            let ok = out.exit_code == Some(0);
+            Outcome {
+                status: if ok {
+                    StepStatus::Success
+                } else {
+                    StepStatus::Failed
+                },
+                exit_code: out.exit_code,
+                stdout: Some(truncate(out.stdout)),
+                stderr: Some(truncate(out.stderr)),
+                error: if ok {
+                    None
+                } else {
+                    Some(match out.exit_code {
+                        Some(c) => format!("exit code {c}"),
+                        None => "terminated by signal".into(),
+                    })
+                },
+            }
+        }
+        Err(_) if cancel.is_cancelled() => Outcome::canceled(),
+        Err(e) => Outcome::failed(e.message),
     }
 }
 
@@ -345,6 +535,8 @@ mod tests {
             let params = match t.id {
                 "delay" => json!({"seconds": 0}),
                 "cli_command" => json!({"shell": "cmd", "command": "echo"}),
+                "run_script" => json!({"shell": "powershell", "script_path": "C:\\s.ps1"}),
+                "launch_app" => json!({"path": "C:\\app.exe"}),
                 _ => json!({}),
             };
             assert!(parse(&def(t.id, params)).is_ok(), "{}", t.id);
@@ -409,5 +601,151 @@ mod tests {
     fn output_is_truncated() {
         let long = "x".repeat(OUTPUT_LIMIT + 10);
         assert!(truncate(long).ends_with("[truncated]"));
+    }
+
+    #[test]
+    fn validates_script_and_app_params() {
+        assert!(
+            parse(&def(
+                "run_script",
+                json!({"shell": "cmd", "script_path": "a.bat", "args": ["x"]})
+            ))
+            .is_ok()
+        );
+        assert!(
+            parse(&def(
+                "run_script",
+                json!({"shell": "cmd", "script_path": " "})
+            ))
+            .is_err()
+        );
+        assert!(
+            parse(&def(
+                "run_script",
+                json!({"shell": "zsh", "script_path": "a"})
+            ))
+            .is_err()
+        );
+        assert!(
+            parse(&def(
+                "launch_app",
+                json!({"path": "C:\\a.exe", "wait": true})
+            ))
+            .is_ok()
+        );
+        assert!(parse(&def("launch_app", json!({"path": ""}))).is_err());
+    }
+
+    fn script(shell: &str, path: &str, args: &[&str]) -> RunScriptParams {
+        RunScriptParams {
+            shell: shell.into(),
+            script_path: path.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            working_dir: None,
+        }
+    }
+
+    #[test]
+    fn builds_script_invocations() {
+        let s = script_command(&script(
+            "cmd",
+            r"C:\My Scripts\run.bat",
+            &["one", "two words", "a&b"],
+        ));
+        assert!(s.raw_args);
+        assert_eq!(
+            s.args.last().unwrap(),
+            r#"""C:\My Scripts\run.bat" one "two words" "a&b"""#
+        );
+        #[cfg(windows)]
+        assert_eq!(s.working_dir.as_deref(), Some(r"C:\My Scripts"));
+
+        let s = script_command(&script("powershell", r"C:\s\x.ps1", &["-Name", "Петя"]));
+        assert_eq!(s.program, "powershell.exe");
+        assert_eq!(
+            s.args,
+            vec![
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                r"C:\s\x.ps1",
+                "-Name",
+                "Петя"
+            ]
+        );
+
+        let s = script_command(&script("wsl", r"C:\Users\me\job.sh", &["1"]));
+        assert_eq!(s.args, vec!["--exec", "sh", "/mnt/c/Users/me/job.sh", "1"]);
+        assert_eq!(s.working_dir, None);
+        assert_eq!(to_wsl_path("/home/me/x.sh"), "/home/me/x.sh");
+    }
+
+    #[tokio::test]
+    async fn missing_files_fail_before_starting() {
+        let p = MockPlatform::default();
+        let out = execute(
+            parse(&def(
+                "run_script",
+                json!({"shell": "cmd", "script_path": "/no/such.bat"}),
+            ))
+            .unwrap(),
+            &p,
+            CancellationToken::new(),
+        )
+        .await;
+        assert!(out.error.unwrap().contains("script not found"));
+        let out = execute(
+            parse(&def("launch_app", json!({"path": "/no/such.exe"}))).unwrap(),
+            &p,
+            CancellationToken::new(),
+        )
+        .await;
+        assert!(out.error.unwrap().contains("program not found"));
+        assert!(p.processes.lock().unwrap().is_empty());
+        assert!(p.launched.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn scripts_and_apps_run_through_platform() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tool.exe");
+        std::fs::write(&file, b"").unwrap();
+        let path = file.display().to_string();
+
+        let p = MockPlatform::with_responses(vec![MockResponse::ok("script output")]);
+        let out = execute(
+            parse(&def(
+                "run_script",
+                json!({"shell": "sh", "script_path": path}),
+            ))
+            .unwrap(),
+            &p,
+            CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(out.status, StepStatus::Success);
+        assert_eq!(out.stdout.as_deref(), Some("script output"));
+        assert_eq!(
+            p.processes.lock().unwrap()[0].working_dir.as_deref(),
+            Some(dir.path().to_str().unwrap())
+        );
+
+        let out = execute(
+            parse(&def(
+                "launch_app",
+                json!({"path": path, "args": ["--x"], "wait": true}),
+            ))
+            .unwrap(),
+            &p,
+            CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(out.status, StepStatus::Success);
+        assert_eq!(out.exit_code, Some(0));
+        let launched = p.launched.lock().unwrap();
+        assert_eq!(launched[0].0.args, vec!["--x"]);
+        assert!(launched[0].1);
     }
 }

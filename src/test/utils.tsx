@@ -13,6 +13,9 @@ export const invokeMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 
+export const dialogOpenMock = vi.fn();
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (...args: unknown[]) => dialogOpenMock(...args) }));
+
 /** Routes `api` calls by `op`; unknown ops reject with NOT_FOUND. Returns the list of received requests. */
 export function mockApi(handlers: Partial<Record<Request["op"], Handler>>) {
   const calls: Request[] = [];

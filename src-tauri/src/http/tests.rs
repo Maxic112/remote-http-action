@@ -4,12 +4,19 @@ use std::sync::Arc;
 
 use reqwest::StatusCode;
 use serde_json::{Value, json};
-use tokio::net::TcpListener;
 
 use crate::core::tests::{core_with, sample_flow};
 use crate::core::{Caller, Core, Request};
 use crate::model::{ActionDef, OnError, ResponseMode};
 use crate::platform::mock::{MockPlatform, MockResponse};
+
+fn client() -> reqwest::Client {
+    crate::tls::ensure_crypto_provider();
+    reqwest::Client::builder()
+        .tls_danger_accept_invalid_certs(true)
+        .build()
+        .unwrap()
+}
 
 struct Fixture {
     core: Arc<Core>,
@@ -21,9 +28,9 @@ struct Fixture {
 impl Fixture {
     async fn new(platform: MockPlatform) -> Self {
         let core = core_with(platform);
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        core.http.serve(core.clone(), listener).await;
+        core.http.serve(core.clone(), listener, None).await;
         let flow = core
             .handle(
                 Caller::Ui,
@@ -58,7 +65,7 @@ impl Fixture {
         Self {
             core,
             base: format!("http://{addr}"),
-            client: reqwest::Client::new(),
+            client: client(),
             key: issued["secret"].as_str().unwrap().to_string(),
         }
     }
@@ -451,4 +458,88 @@ async fn server_can_be_stopped() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn requests_are_logged_with_key_name_only() {
+    let fx = Fixture::new(MockPlatform::default()).await;
+    fx.post("/flow/sleep/", Some(&fx.key)).await;
+    fx.post("/flow/sleep/", Some("rha_wrong")).await;
+    let entries = fx
+        .core
+        .logs
+        .read(crate::logs::LogCategory::Http, 10, None)
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["status"], 401);
+    assert_eq!(entries[0]["key"], Value::Null);
+    assert_eq!(entries[1]["status"], 200);
+    assert_eq!(entries[1]["key"], "phone");
+    assert_eq!(entries[1]["method"], "POST");
+    assert_eq!(entries[1]["path"], "/flow/sleep/");
+    assert_eq!(entries[1]["ip"], "127.0.0.1");
+    let text = serde_json::to_string(&entries).unwrap();
+    assert!(!text.contains(&fx.key));
+    assert!(!text.contains("rha_wrong"));
+}
+
+#[tokio::test]
+async fn https_with_self_signed_certificate() {
+    let core = core_with(MockPlatform::default());
+    let mut settings = core.settings();
+    settings.server.enabled = false;
+    settings.server.tls.enabled = true;
+    core.apply_settings(settings.clone()).await.unwrap();
+
+    let config = crate::tls::load(&settings.server.tls, &core.paths.data_dir)
+        .await
+        .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let status = core.http.serve(core.clone(), listener, Some(config)).await;
+    assert!(status.tls);
+
+    let resp = client()
+        .get(format!("https://localhost:{port}/status/"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    // Plain HTTP to the HTTPS port fails.
+    let plain = client()
+        .get(format!("http://127.0.0.1:{port}/status/"))
+        .send()
+        .await;
+    assert!(!plain.map(|r| r.status().is_success()).unwrap_or(false));
+
+    let info = core.handle(Caller::Ui, Request::TlsInfo).await.unwrap();
+    assert_eq!(info["fingerprint"].as_str().unwrap().len(), 95);
+    core.http.stop(&core).await;
+}
+
+#[tokio::test]
+async fn broken_custom_certificate_reports_server_error() {
+    let core = core_with(MockPlatform::default());
+    let mut settings = core.settings();
+    settings.server.enabled = false;
+    core.apply_settings(settings.clone()).await.unwrap();
+    settings.server.enabled = true;
+    settings.server.port = 1;
+    settings.server.bind_address = "127.0.0.1".into();
+    settings.server.tls = crate::settings::TlsSettings {
+        enabled: true,
+        mode: crate::settings::TlsMode::Custom,
+        cert_path: "/no/cert.pem".into(),
+        key_path: "/no/key.pem".into(),
+    };
+    core.apply_settings(settings).await.unwrap();
+    let status = core.http.status();
+    assert_eq!(status.state, super::ServerState::Error);
+    assert!(
+        status
+            .error
+            .unwrap()
+            .contains("cannot load TLS certificate")
+    );
+    assert!(status.tls);
 }

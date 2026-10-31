@@ -33,11 +33,13 @@ function Rha {
     [pscustomobject]@{ Code = $code; Json = $json; Raw = $out }
 }
 
+$Scheme = "http"
+
 function Http([string]$method, [string]$path, [string]$key) {
     $headers = @{}
     if ($key) { $headers["Authorization"] = "Bearer $key" }
     try {
-        $r = Invoke-WebRequest -Method $method -Uri "http://127.0.0.1:$Port$path" -Headers $headers -UseBasicParsing
+        $r = Invoke-WebRequest -Method $method -Uri "$($script:Scheme)://127.0.0.1:$Port$path" -Headers $headers -UseBasicParsing -SkipCertificateCheck
         [pscustomobject]@{ Status = [int]$r.StatusCode; Json = ($r.Content | ConvertFrom-Json) }
     } catch {
         $resp = $_.Exception.Response
@@ -120,6 +122,55 @@ try {
 
     $main = & $Exe keys list --json 2>&1 | Out-String
     Check "main executable also accepts CLI commands" ($LASTEXITCODE -eq 0 -and $main -like "*phone*") $main
+
+    # --- Scripts ---
+    $script = Join-Path $data "job.ps1"
+    Set-Content -Encoding UTF8 $script 'param($Name) Write-Output "script says $Name"; exit 0'
+    @{
+        name    = "Script"
+        path    = "script"
+        actions = @(@{ type = "run_script"; params = @{ shell = "powershell"; script_path = $script; args = @("Мир") }; capture_output = $true })
+    } | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $flowFile
+    $sflow = Rha flows create --file $flowFile
+    Check "script flow created" ($sflow.Code -eq 0) $sflow.Raw
+    $r = Rha flows run script --wait
+    Check "run_script passes arguments and captures output" ($r.Json.status -eq "success" -and $r.Json.steps[0].stdout -like "*script says Мир*") $r.Raw
+
+    # --- Logs ---
+    $log = Rha logs tail http --limit 50
+    $logText = $log.Raw
+    Check "HTTP log records requests with key name" ($log.Code -eq 0 -and $logText -like '*"key": "phone"*') $logText
+    Check "HTTP log never contains the secret" (-not ($logText -like "*$secret*"))
+    $log = Rha logs tail flow --limit 5
+    Check "flow log records steps with parameters" ($log.Raw -like "*script says*" -and $log.Raw -like "*script_path*") $log.Raw
+    $log = Rha logs tail cli --grep flow_run --limit 5
+    Check "CLI log records commands" ($log.Code -eq 0 -and $log.Json.Count -ge 1) $log.Raw
+    $info = Rha logs info
+    Check "logs info lists three categories" ($info.Json.categories.Count -eq 3) $info.Raw
+
+    # --- HTTPS ---
+    $r = Rha settings set server.tls.enabled true
+    Check "enable HTTPS" ($r.Code -eq 0) $r.Raw
+    Start-Sleep -Milliseconds 800
+    $tls = Rha tls info
+    Check "self-signed certificate generated" ($tls.Json.fingerprint -match "^([0-9A-F]{2}:){31}[0-9A-F]{2}$") $tls.Raw
+    $script:Scheme = "https"
+    $s = Http GET "/status/" $secret
+    Check "status over HTTPS" ($s.Status -eq 200 -and $s.Json.status -eq "ok")
+    $s = Http POST "/flow/smoke/test/" $secret
+    Check "flow over HTTPS" ($s.Status -eq 200)
+    $script:Scheme = "http"
+    $plain = $null
+    try { $plain = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/status/" -TimeoutSec 5).StatusCode } catch { }
+    Check "plain HTTP is not served while HTTPS is on" ($plain -ne 200)
+    $r = Rha settings set server.tls.enabled false
+    Start-Sleep -Milliseconds 800
+    $s = Http GET "/status/" $null
+    Check "back to HTTP" ($s.Status -eq 200)
+
+    # --- Autostart (status only; installing needs administrator rights and changes the system) ---
+    $a = Rha autostart status
+    Check "autostart status" ($a.Code -eq 0 -and $null -ne $a.Json.installed) $a.Raw
 
     $r = Rha keys delete 99999
     Check "missing item gives exit 6" ($r.Code -eq 6) $r.Raw

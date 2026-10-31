@@ -8,6 +8,7 @@ use serde_json::Value;
 use crate::core::Request;
 use crate::error::{AppError, ErrorCode};
 use crate::ipc::{self, IpcRequest};
+use crate::logs::LogCategory;
 use crate::model::{FlowInput, Id};
 use crate::paths::AppPaths;
 
@@ -55,6 +56,54 @@ pub enum Command {
     /// Control the application window and process
     #[command(subcommand)]
     App(AppCmd),
+    /// Read and clear logs
+    #[command(subcommand)]
+    Logs(LogsCmd),
+    /// Start at logon with administrator rights (Task Scheduler)
+    #[command(subcommand)]
+    Autostart(AutostartCmd),
+    /// HTTPS certificate
+    #[command(subcommand)]
+    Tls(TlsCmd),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LogsCmd {
+    /// Log folder and file sizes
+    Info,
+    /// Show recent entries, newest first
+    Tail {
+        #[arg(value_enum)]
+        category: LogCategory,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Only entries containing this text
+        #[arg(long)]
+        grep: Option<String>,
+    },
+    /// Delete all files of a category
+    Clear {
+        #[arg(value_enum)]
+        category: LogCategory,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AutostartCmd {
+    /// Show whether autostart is set up
+    Status,
+    /// Set up autostart (requires administrator rights)
+    Install,
+    /// Remove autostart
+    Remove,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TlsCmd {
+    /// Certificate paths, fingerprint and expiry
+    Info,
+    /// Generate a new self-signed certificate
+    Regenerate,
 }
 
 #[derive(Debug, Subcommand)]
@@ -329,6 +378,28 @@ pub fn to_request(cmd: Command) -> Result<Request, AppError> {
             SystemCmd::Info => Request::SystemInfo,
             SystemCmd::ActionTypes => Request::ActionTypes,
         },
+        Command::Logs(c) => match c {
+            LogsCmd::Info => Request::LogsInfo,
+            LogsCmd::Tail {
+                category,
+                limit,
+                grep,
+            } => Request::LogsRead {
+                category,
+                limit: Some(limit),
+                query: grep,
+            },
+            LogsCmd::Clear { category } => Request::LogsClear { category },
+        },
+        Command::Autostart(c) => match c {
+            AutostartCmd::Status => Request::AutostartStatus,
+            AutostartCmd::Install => Request::AutostartInstall,
+            AutostartCmd::Remove => Request::AutostartRemove,
+        },
+        Command::Tls(c) => match c {
+            TlsCmd::Info => Request::TlsInfo,
+            TlsCmd::Regenerate => Request::TlsRegenerate,
+        },
         Command::App(c) => match c {
             AppCmd::Show => Request::AppShow,
             AppCmd::Quit => Request::AppQuit,
@@ -412,6 +483,17 @@ fn columns_for(req: &Request) -> Option<&'static [&'static str]> {
 
 /// Human-readable rendering of a successful response.
 pub fn render(req: &Request, data: &Value) -> String {
+    // Log entries: one compact JSON object per line, like the log files themselves.
+    if let (Request::LogsRead { .. }, Some(rows)) = (req, data.as_array()) {
+        return if rows.is_empty() {
+            "(empty)".into()
+        } else {
+            rows.iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+    }
     if let (Some(cols), Some(rows)) = (columns_for(req), data.as_array()) {
         return if rows.is_empty() {
             "(empty)".into()
@@ -502,6 +584,27 @@ mod tests {
         let mut full = vec!["remote-http-action"];
         full.extend_from_slice(args);
         to_request(Cli::try_parse_from(full).unwrap().command).unwrap()
+    }
+
+    #[test]
+    fn maps_m2_commands() {
+        assert_eq!(
+            parse(&["logs", "tail", "http", "--limit", "5", "--grep", "phone"]),
+            Request::LogsRead {
+                category: LogCategory::Http,
+                limit: Some(5),
+                query: Some("phone".into())
+            }
+        );
+        assert_eq!(
+            parse(&["logs", "clear", "flow"]),
+            Request::LogsClear {
+                category: LogCategory::Flow
+            }
+        );
+        assert_eq!(parse(&["autostart", "install"]), Request::AutostartInstall);
+        assert_eq!(parse(&["tls", "regenerate"]), Request::TlsRegenerate);
+        assert!(Cli::try_parse_from(["x", "logs", "tail", "nope"]).is_err());
     }
 
     #[test]

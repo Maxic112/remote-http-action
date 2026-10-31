@@ -51,6 +51,8 @@ pub struct MockPlatform {
     pub power_calls: Mutex<Vec<PowerAction>>,
     pub processes: Mutex<Vec<ProcessSpec>>,
     pub responses: Mutex<VecDeque<MockResponse>>,
+    pub launched: Mutex<Vec<(ProcessSpec, bool)>>,
+    pub autostart: Mutex<bool>,
 }
 
 impl MockPlatform {
@@ -100,6 +102,46 @@ impl Platform for MockPlatform {
     }
 
     fn relaunch_elevated(&self) -> AppResult<()> {
+        Ok(())
+    }
+
+    async fn launch(
+        &self,
+        spec: ProcessSpec,
+        wait: bool,
+        _cancel: CancellationToken,
+    ) -> AppResult<Option<i32>> {
+        self.launched.lock().unwrap().push((spec, wait));
+        Ok(wait.then_some(0))
+    }
+
+    fn open_folder(&self, _path: &std::path::Path) -> AppResult<()> {
+        Ok(())
+    }
+
+    fn autostart_status(&self) -> AppResult<AutostartStatus> {
+        let installed = *self.autostart.lock().unwrap();
+        Ok(AutostartStatus {
+            supported: true,
+            installed,
+            command: installed.then(|| "app.exe".into()),
+            matches_current: installed,
+        })
+    }
+
+    fn autostart_install(&self) -> AppResult<()> {
+        if !self.elevated {
+            return Err(AppError::new(
+                crate::error::ErrorCode::AdminRequired,
+                "administrator rights required",
+            ));
+        }
+        *self.autostart.lock().unwrap() = true;
+        Ok(())
+    }
+
+    fn autostart_remove(&self) -> AppResult<()> {
+        *self.autostart.lock().unwrap() = false;
         Ok(())
     }
 }

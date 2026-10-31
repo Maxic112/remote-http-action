@@ -38,7 +38,7 @@ export interface ClientMeta {
   confirm_on_client: boolean;
 }
 
-export type ActionType = "delay" | "shutdown" | "reboot" | "sleep" | "cli_command";
+export type ActionType = "delay" | "shutdown" | "reboot" | "sleep" | "cli_command" | "run_script" | "launch_app";
 
 export interface ActionDef {
   type: ActionType;
@@ -118,15 +118,55 @@ export interface Settings {
     public_status: boolean;
     hide_forbidden_flows: boolean;
     brute_force: { enabled: boolean; max_failures: number; window_sec: number; ban_sec: number };
+    tls: { enabled: boolean; mode: TlsMode; cert_path: string; key_path: string };
   };
   cli: { enabled: boolean };
   app: { close_to_tray: boolean; language: "system" | "ru" | "en"; run_history_limit: number };
+  logging: {
+    http: LogCategorySettings;
+    cli: LogCategorySettings;
+    flow: LogCategorySettings;
+    output_limit: number;
+  };
+}
+
+export type TlsMode = "self_signed" | "custom";
+
+export interface LogCategorySettings {
+  enabled: boolean;
+  max_file_mb: number;
+  max_files: number;
+}
+
+export type LogCategory = "http" | "cli" | "flow";
+
+export interface LogsInfo {
+  dir: string;
+  categories: { category: LogCategory; enabled: boolean; files: number; size_bytes: number }[];
+}
+
+export type LogEntry = Record<string, unknown> & { ts: string };
+
+export interface AutostartStatus {
+  supported: boolean;
+  installed: boolean;
+  command: string | null;
+  matches_current: boolean;
+}
+
+export interface TlsInfo {
+  mode: TlsMode;
+  cert_path: string;
+  key_path: string;
+  fingerprint: string | null;
+  not_after: string | null;
 }
 
 export interface ServerStatus {
   state: "stopped" | "running" | "error";
   address: string | null;
   error: string | null;
+  tls: boolean;
 }
 
 export interface ShellInfo {
@@ -183,7 +223,16 @@ export type Request =
   | { op: "action_types" }
   | { op: "app_show" }
   | { op: "app_quit" }
-  | { op: "app_restart_elevated" };
+  | { op: "app_restart_elevated" }
+  | { op: "logs_info" }
+  | { op: "logs_read"; category: LogCategory; limit?: number; query?: string }
+  | { op: "logs_clear"; category: LogCategory }
+  | { op: "logs_open_folder" }
+  | { op: "autostart_status" }
+  | { op: "autostart_install" }
+  | { op: "autostart_remove" }
+  | { op: "tls_info" }
+  | { op: "tls_regenerate" };
 
 export type AppEvent =
   | { type: "data_changed"; entity: string }

@@ -97,6 +97,25 @@ remote-http-action-cli.exe settings set server.allowed_ips '["192.168.1.0/24"]'
 ```
 
 Значение разбирается как JSON; если это не JSON, оно считается строкой.
+Для списков можно перечислить значения через запятую: `settings set server.allowed_ips 192.168.1.0/24,10.0.0.5`. Пустая строка `""` очищает список.
+
+### Логи
+
+```bash
+remote-http-action-cli.exe logs info
+remote-http-action-cli.exe logs tail http|cli|flow [--limit 20] [--grep текст]
+remote-http-action-cli.exe logs clear http|cli|flow
+```
+
+`logs tail` печатает записи в формате JSON Lines, новые сверху.
+
+### Автозапуск и HTTPS
+
+```bash
+remote-http-action-cli.exe autostart status|install|remove
+remote-http-action-cli.exe tls info
+remote-http-action-cli.exe tls regenerate
+```
 
 ### Сервер, блокировки, система, приложение
 

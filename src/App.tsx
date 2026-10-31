@@ -1,4 +1,4 @@
-import { HistoryIcon, KeyRoundIcon, SettingsIcon, UsersIcon, WorkflowIcon } from "lucide-react";
+import { HistoryIcon, KeyRoundIcon, ScrollTextIcon, SettingsIcon, UsersIcon, WorkflowIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +8,7 @@ import { ServerBadge } from "@/components/ServerBadge";
 import { FlowsPage } from "@/features/flows/FlowsPage";
 import { GroupsPage } from "@/features/groups/GroupsPage";
 import { KeysPage } from "@/features/keys/KeysPage";
+import { LogsPage } from "@/features/logs/LogsPage";
 import { RunsPage } from "@/features/runs/RunsPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import i18n, { resolveLanguage } from "@/i18n";
@@ -20,6 +21,7 @@ const PAGES = {
   keys: { icon: KeyRoundIcon, component: KeysPage },
   groups: { icon: UsersIcon, component: GroupsPage },
   runs: { icon: HistoryIcon, component: RunsPage },
+  logs: { icon: ScrollTextIcon, component: LogsPage },
   settings: { icon: SettingsIcon, component: SettingsPage },
 } as const;
 

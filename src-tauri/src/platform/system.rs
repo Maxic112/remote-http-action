@@ -116,11 +116,98 @@ impl Platform for SystemPlatform {
             Err(AppError::internal("elevation is only supported on Windows"))
         }
     }
+
+    async fn launch(
+        &self,
+        spec: ProcessSpec,
+        wait: bool,
+        cancel: CancellationToken,
+    ) -> AppResult<Option<i32>> {
+        let mut cmd = tokio::process::Command::new(&spec.program);
+        cmd.args(&spec.args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(dir) = spec.working_dir.as_deref().filter(|d| !d.is_empty()) {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| AppError::internal(format!("failed to start {}: {e}", spec.program)))?;
+        if !wait {
+            // Dropping the handle leaves the program running.
+            return Ok(None);
+        }
+        tokio::select! {
+            status = child.wait() => {
+                let status = status.map_err(|e| AppError::internal(format!("wait failed: {e}")))?;
+                Ok(status.code())
+            }
+            _ = cancel.cancelled() => {
+                let _ = child.kill().await;
+                Err(AppError::internal("process killed"))
+            }
+        }
+    }
+
+    fn open_folder(&self, path: &std::path::Path) -> AppResult<()> {
+        let _ = std::fs::create_dir_all(path);
+        let program = if cfg!(windows) {
+            "explorer.exe"
+        } else if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        std::process::Command::new(program)
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| AppError::internal(format!("cannot open {}: {e}", path.display())))
+    }
+
+    fn autostart_status(&self) -> AppResult<AutostartStatus> {
+        #[cfg(windows)]
+        {
+            super::autostart::status(super::autostart::task_name())
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(AutostartStatus {
+                supported: false,
+                installed: false,
+                command: None,
+                matches_current: false,
+            })
+        }
+    }
+
+    fn autostart_install(&self) -> AppResult<()> {
+        #[cfg(windows)]
+        {
+            super::autostart::install(super::autostart::task_name())
+        }
+        #[cfg(not(windows))]
+        {
+            Err(AppError::internal("autostart is only supported on Windows"))
+        }
+    }
+
+    fn autostart_remove(&self) -> AppResult<()> {
+        #[cfg(windows)]
+        {
+            super::autostart::remove(super::autostart::task_name())
+        }
+        #[cfg(not(windows))]
+        {
+            Err(AppError::internal("autostart is only supported on Windows"))
+        }
+    }
 }
 
 /// Process output is UTF-8 when the program supports it; console programs that use the OEM
 /// code page (e.g. `cmd` built-ins) are decoded with it instead.
-fn decode(bytes: &[u8]) -> String {
+pub(crate) fn decode(bytes: &[u8]) -> String {
     match std::str::from_utf8(bytes) {
         Ok(s) => s.to_string(),
         #[cfg(windows)]

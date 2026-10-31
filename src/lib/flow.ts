@@ -1,6 +1,6 @@
 import type { ActionDef, ActionType, Flow, FlowInput } from "./types";
 
-export const ACTION_TYPES: ActionType[] = ["shutdown", "reboot", "sleep", "delay", "cli_command"];
+export const ACTION_TYPES: ActionType[] = ["shutdown", "reboot", "sleep", "delay", "cli_command", "run_script", "launch_app"];
 
 export function defaultParams(type: ActionType, defaultShell = "cmd"): Record<string, unknown> {
   switch (type) {
@@ -13,6 +13,10 @@ export function defaultParams(type: ActionType, defaultShell = "cmd"): Record<st
       return { hibernate: false };
     case "cli_command":
       return { shell: defaultShell, command: "", working_dir: null };
+    case "run_script":
+      return { shell: defaultShell, script_path: "", args: [], working_dir: null };
+    case "launch_app":
+      return { path: "", args: [], working_dir: null, wait: false };
   }
 }
 

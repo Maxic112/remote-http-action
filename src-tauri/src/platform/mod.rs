@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::AppResult;
 
+pub mod autostart;
 #[cfg(test)]
 pub mod mock;
 pub mod system;
@@ -46,6 +47,16 @@ pub struct ShellInfo {
     pub path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AutostartStatus {
+    pub supported: bool,
+    pub installed: bool,
+    /// Command registered in the scheduled task, if any.
+    pub command: Option<String>,
+    /// The task starts this executable (it may point to an older location after a move).
+    pub matches_current: bool,
+}
+
 #[async_trait]
 pub trait Platform: Send + Sync {
     /// Whether the current process runs with administrator rights.
@@ -61,6 +72,20 @@ pub trait Platform: Send + Sync {
     fn shells(&self) -> Vec<ShellInfo>;
     /// Starts an elevated copy of the application (UAC prompt). The caller exits afterwards.
     fn relaunch_elevated(&self) -> AppResult<()>;
+    /// Starts a program with its own window. With `wait`, waits for it and returns the exit code;
+    /// otherwise returns as soon as it has started. Killed when `cancel` fires while waiting.
+    async fn launch(
+        &self,
+        spec: ProcessSpec,
+        wait: bool,
+        cancel: CancellationToken,
+    ) -> AppResult<Option<i32>>;
+    /// Opens a folder in the file manager.
+    fn open_folder(&self, path: &std::path::Path) -> AppResult<()>;
+    fn autostart_status(&self) -> AppResult<AutostartStatus>;
+    /// Registers start at logon with administrator rights.
+    fn autostart_install(&self) -> AppResult<()>;
+    fn autostart_remove(&self) -> AppResult<()>;
 }
 
 /// Searches `PATH` for an executable.

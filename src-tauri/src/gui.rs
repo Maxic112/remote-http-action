@@ -1,6 +1,6 @@
 //! Tauri shell: window, tray, `api` command and event forwarding.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
@@ -33,16 +33,8 @@ impl EventSink for TauriSink {
     fn emit(&self, event: AppEvent) {
         match &event {
             AppEvent::RunDelayed { .. } => show_main(&self.app),
-            AppEvent::ServerStatusChanged => {
-                if let (Some(core), Some(item)) = (
-                    self.app.try_state::<Arc<Core>>(),
-                    self.app.try_state::<ServerMenuItem>(),
-                ) {
-                    let _ = item
-                        .0
-                        .set_checked(core.http.status().state == ServerState::Running);
-                }
-            }
+            AppEvent::ServerStatusChanged => sync_server_item(&self.app),
+            AppEvent::DataChanged { entity: "settings" } => refresh_tray_menu(&self.app),
             _ => {}
         }
         let _ = self.app.emit("app-event", &event);
@@ -62,7 +54,59 @@ impl AppControl for GuiControl {
     }
 }
 
-struct ServerMenuItem(CheckMenuItem<Wry>);
+/// Tray menu state: the server check item and the language the menu was built with.
+#[derive(Default)]
+struct TrayMenu(Mutex<Option<(CheckMenuItem<Wry>, bool)>>);
+
+fn sync_server_item(app: &AppHandle) {
+    if let (Some(core), Some(menu)) = (app.try_state::<Arc<Core>>(), app.try_state::<TrayMenu>())
+        && let Some((item, _)) = menu.0.lock().unwrap().as_ref()
+    {
+        let _ = item.set_checked(core.http.status().state == ServerState::Running);
+    }
+}
+
+fn build_menu(app: &AppHandle, ru: bool) -> tauri::Result<(Menu<Wry>, CheckMenuItem<Wry>)> {
+    let t = |ru_text: &'static str, en_text: &'static str| if ru { ru_text } else { en_text };
+    let open = MenuItem::with_id(app, "open", t("Открыть", "Open"), true, None::<&str>)?;
+    let server = CheckMenuItem::with_id(
+        app,
+        "server",
+        t("HTTP-сервер", "HTTP server"),
+        true,
+        false,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", t("Выход", "Quit"), true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &server, &quit])?;
+    Ok((menu, server))
+}
+
+/// Rebuilds the tray menu when the interface language changes.
+fn refresh_tray_menu(app: &AppHandle) {
+    let (Some(core), Some(state), Some(tray)) = (
+        app.try_state::<Arc<Core>>(),
+        app.try_state::<TrayMenu>(),
+        app.tray_by_id("main"),
+    ) else {
+        return;
+    };
+    let ru = ui_is_russian(&core.settings().app.language);
+    if state
+        .0
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|(_, lang)| *lang == ru)
+    {
+        return;
+    }
+    if let Ok((menu, server)) = build_menu(app, ru) {
+        let _ = tray.set_menu(Some(menu));
+        *state.0.lock().unwrap() = Some((server, ru));
+        sync_server_item(app);
+    }
+}
 
 #[tauri::command]
 async fn api(core: tauri::State<'_, Arc<Core>>, request: Request) -> Result<Value, AppError> {
@@ -80,19 +124,8 @@ fn ui_is_russian(language: &str) -> bool {
 
 fn build_tray(app: &AppHandle, core: &Arc<Core>) -> tauri::Result<()> {
     let ru = ui_is_russian(&core.settings().app.language);
-    let t = |ru_text: &'static str, en_text: &'static str| if ru { ru_text } else { en_text };
-    let open = MenuItem::with_id(app, "open", t("Открыть", "Open"), true, None::<&str>)?;
-    let server = CheckMenuItem::with_id(
-        app,
-        "server",
-        t("HTTP-сервер", "HTTP server"),
-        true,
-        false,
-        None::<&str>,
-    )?;
-    let quit = MenuItem::with_id(app, "quit", t("Выход", "Quit"), true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &server, &quit])?;
-    app.manage(ServerMenuItem(server));
+    let (menu, server) = build_menu(app, ru)?;
+    app.manage(TrayMenu(Mutex::new(Some((server, ru)))));
 
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Remote HTTP Action")
@@ -152,6 +185,7 @@ pub fn run(start_minimized: bool) {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app)
         }))
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![api])
         .setup(move |app| {
             let handle = app.handle().clone();

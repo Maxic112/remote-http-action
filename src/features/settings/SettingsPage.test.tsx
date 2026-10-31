@@ -21,19 +21,29 @@ const settings: Settings = {
     public_status: true,
     hide_forbidden_flows: false,
     brute_force: { enabled: true, max_failures: 10, window_sec: 300, ban_sec: 900 },
+    tls: { enabled: false, mode: "self_signed", cert_path: "", key_path: "" },
   },
   cli: { enabled: true },
   app: { close_to_tray: true, language: "system", run_history_limit: 200 },
+  logging: {
+    http: { enabled: true, max_file_mb: 5, max_files: 5 },
+    cli: { enabled: true, max_file_mb: 5, max_files: 5 },
+    flow: { enabled: true, max_file_mb: 5, max_files: 5 },
+    output_limit: 4096,
+  },
 };
 
-function setup() {
+function setup(extra: Parameters<typeof mockApi>[0] = {}) {
   return mockApi({
+    autostart_status: () => ({ supported: true, installed: false, command: null, matches_current: false }),
+    tls_info: () => ({ mode: "self_signed", cert_path: "c", key_path: "k", fingerprint: null, not_after: null }),
     settings_get: () => settings,
     system_info: () => systemInfo,
     server_status: () => ({ state: "running", address: "0.0.0.0:8765", error: null }),
     bans_list: () => [{ ip: "10.0.0.9", seconds_left: 120 }],
     settings_update: (r) => (r as Extract<Request, { op: "settings_update" }>).settings,
     ban_remove: () => ({}),
+    ...extra,
   });
 }
 
@@ -67,5 +77,37 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Unblock" }));
     await waitFor(() => expect(calls).toContainEqual({ op: "ban_remove", ip: "10.0.0.9" }));
     expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
+
+  it("sets up autostart", async () => {
+    const user = userEvent.setup();
+    let installed = false;
+    const calls = setup({
+      autostart_status: () => ({ supported: true, installed, command: installed ? "C:\\app.exe" : null, matches_current: installed }),
+      autostart_install: () => {
+        installed = true;
+        return {};
+      },
+    });
+    renderWithProviders(<SettingsPage />);
+    expect(await screen.findByTestId("autostart-state")).toHaveTextContent("Autostart is not set up");
+    await user.click(screen.getByRole("button", { name: "Set up autostart" }));
+    await waitFor(() => expect(calls.some((c) => c.op === "autostart_install")).toBe(true));
+    expect(await screen.findByText("Autostart is set up")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove autostart" })).toBeInTheDocument();
+  });
+
+  it("enables HTTPS and shows the certificate fingerprint once saved", async () => {
+    const user = userEvent.setup();
+    const saved: Settings = { ...settings, server: { ...settings.server, tls: { ...settings.server.tls, enabled: true } } };
+    const calls = setup({
+      settings_get: () => saved,
+      tls_info: () => ({ mode: "self_signed", cert_path: "c", key_path: "k", fingerprint: "AA:BB", not_after: "2036" }),
+      tls_regenerate: () => ({}),
+    });
+    renderWithProviders(<SettingsPage />);
+    expect(await screen.findByTestId("tls-fingerprint")).toHaveTextContent("AA:BB");
+    await user.click(screen.getByRole("button", { name: "Generate a new certificate" }));
+    await waitFor(() => expect(calls.some((c) => c.op === "tls_regenerate")).toBe(true));
   });
 });

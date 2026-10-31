@@ -11,6 +11,7 @@ use crate::actions::{self, Outcome};
 use crate::db::Db;
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::events::{AppEvent, EventSink};
+use crate::logs::{LogCategory, Logger, clip};
 use crate::model::*;
 use crate::platform::Platform;
 
@@ -56,6 +57,7 @@ pub struct Runner {
     db: Arc<Db>,
     platform: Arc<dyn Platform>,
     events: Arc<dyn EventSink>,
+    logs: Arc<Logger>,
     history_limit: Mutex<u32>,
     state: Mutex<State>,
 }
@@ -65,12 +67,14 @@ impl Runner {
         db: Arc<Db>,
         platform: Arc<dyn Platform>,
         events: Arc<dyn EventSink>,
+        logs: Arc<Logger>,
         history_limit: u32,
     ) -> Self {
         Self {
             db,
             platform,
             events,
+            logs,
             history_limit: Mutex::new(history_limit),
             state: Mutex::default(),
         }
@@ -169,11 +173,23 @@ impl Runner {
                 None => None,
             };
             let finished = me.execute(run, &flow, parsed, cancel).await;
+            me.log_finished(&finished, &flow);
             me.state().active.remove(&finished.id);
             me.release(flow.id);
             let _ = me.db.prune_runs(*me.history_limit.lock().unwrap());
             let _ = tx.send(Some(finished));
         });
+        self.logs.write(
+            LogCategory::Flow,
+            serde_json::json!({
+                "event": "started",
+                "run_id": initial.id,
+                "flow": initial.flow_path,
+                "source": initial.source,
+                "key": initial.api_key_name,
+                "ip": initial.client_ip,
+            }),
+        );
         self.events.emit(AppEvent::RunUpdated {
             run: Box::new(initial.clone()),
         });
@@ -181,6 +197,47 @@ impl Runner {
             run: initial,
             done: rx,
         })
+    }
+
+    /// Flow log entry with every step: parameters, timing, result and (clipped) output.
+    fn log_finished(&self, run: &Run, flow: &Flow) {
+        let limit = self.logs.output_limit();
+        let steps: Vec<serde_json::Value> = run
+            .steps
+            .iter()
+            .map(|st| {
+                let def = flow.input.actions.get(st.index);
+                serde_json::json!({
+                    "index": st.index,
+                    "type": st.action_type,
+                    "params": def.map(|d| d.params.clone()),
+                    "run_as_admin": def.is_some_and(|d| d.run_as_admin),
+                    "status": st.status,
+                    "started_at": st.started_at,
+                    "finished_at": st.finished_at,
+                    "exit_code": st.exit_code,
+                    "error": st.error,
+                    "stdout": st.stdout.as_deref().map(|o| clip(o, limit)),
+                    "stderr": st.stderr.as_deref().map(|o| clip(o, limit)),
+                })
+            })
+            .collect();
+        self.logs.write(
+            LogCategory::Flow,
+            serde_json::json!({
+                "event": "finished",
+                "run_id": run.id,
+                "flow": run.flow_path,
+                "source": run.source,
+                "key": run.api_key_name,
+                "ip": run.client_ip,
+                "status": run.status,
+                "error": run.error,
+                "started_at": run.started_at,
+                "finished_at": run.finished_at,
+                "steps": steps,
+            }),
+        );
     }
 
     fn release(&self, flow_id: Id) {
@@ -388,7 +445,15 @@ mod tests {
         let id = db.insert_flow(&input).unwrap();
         let flow = db.get_flow(id).unwrap();
         let platform = Arc::new(platform);
-        let runner = Arc::new(Runner::new(db, platform.clone(), Arc::new(NoopSink), 100));
+        let dir = tempfile::tempdir().unwrap().keep();
+        let logs = Arc::new(Logger::new(dir, Default::default()));
+        let runner = Arc::new(Runner::new(
+            db,
+            platform.clone(),
+            Arc::new(NoopSink),
+            logs,
+            100,
+        ));
         (runner, platform, flow)
     }
 
@@ -440,6 +505,22 @@ mod tests {
         let stored = runner.db.get_run(&run.id).unwrap();
         assert_eq!(stored.status, RunStatus::Success);
         assert_eq!(stored.steps.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn runs_are_written_to_the_flow_log() {
+        let (runner, _, flow) = setup(
+            MockPlatform::with_responses(vec![MockResponse::ok("hello")]),
+            input(vec![cmd("echo hello")]),
+        );
+        run_to_end(&runner, &flow).await;
+        let entries = runner.logs.read(LogCategory::Flow, 10, None).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["event"], "finished");
+        assert_eq!(entries[0]["status"], "success");
+        assert_eq!(entries[0]["steps"][0]["params"]["command"], "echo hello");
+        assert_eq!(entries[0]["steps"][0]["stdout"], "hello");
+        assert_eq!(entries[1]["event"], "started");
     }
 
     #[tokio::test]

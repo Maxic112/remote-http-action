@@ -1,27 +1,15 @@
-import type { ReactNode } from "react";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Field, NumberField, PageHeader, SelectField, SwitchField, TextField } from "@/components/common";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { queryKeys, useApiMutation, useBans, useServerStatus, useSettings, useSystemInfo } from "@/lib/api";
 import { linesToList, listToLines } from "@/lib/flow";
 import { notifyError, notifySuccess } from "@/lib/notify";
 import type { Settings } from "@/lib/types";
 
-function Section({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>{title}</CardTitle>
-        {action}
-      </CardHeader>
-      <CardContent className="grid gap-4">{children}</CardContent>
-    </Card>
-  );
-}
+import { AutostartSection, LoggingSection, Section, TlsSection } from "./sections";
 
 function LinesField({ label, hint, value, onChange }: { label: string; hint: string; value: string[]; onChange: (v: string[]) => void }) {
   const id = useId();
@@ -145,6 +133,8 @@ export function SettingsPage() {
           />
         </Section>
 
+        <TlsSection tls={form.server.tls} saved={settings.data?.server.tls ?? form.server.tls} onChange={(v) => setServer("tls", v)} />
+
         <Section title={t("settings.network")}>
           <LinesField
             label={t("settings.allowedIps")}
@@ -219,6 +209,10 @@ export function SettingsPage() {
             onChange={(v) => setForm({ ...form, cli: { enabled: v } })}
           />
         </Section>
+
+        <AutostartSection />
+
+        <LoggingSection logging={form.logging} onChange={(v) => setForm({ ...form, logging: v })} />
 
         <Section title={t("settings.app")}>
           <SwitchField label={t("settings.closeToTray")} checked={form.app.close_to_tray} onChange={(v) => setApp("close_to_tray", v)} />

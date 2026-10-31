@@ -9,7 +9,7 @@ export function ServerBadge() {
   if (!data) return null;
   const label =
     data.state === "running"
-      ? t("server.running", { address: data.address ?? "" })
+      ? t("server.running", { address: `${data.tls ? "https" : "http"}://${data.address ?? ""}` })
       : data.state === "error"
         ? t("server.error")
         : t("server.stopped");

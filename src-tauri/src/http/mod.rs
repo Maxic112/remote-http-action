@@ -3,6 +3,7 @@
 pub mod guard;
 pub mod net;
 
+use std::cell::RefCell;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -11,14 +12,15 @@ use axum::Router;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
+use axum_server::Handle;
+use axum_server::tls_rustls::RustlsConfig;
 use serde::Serialize;
 use serde_json::{Value, json};
-use tokio::net::TcpListener;
-use tokio::sync::oneshot;
 
 use crate::core::Core;
 use crate::error::{AppError, ErrorCode};
 use crate::events::AppEvent;
+use crate::logs::LogCategory;
 use crate::model::{ApiKey, Run, RunSource, RunStatus};
 use crate::runner::RunRequest;
 use crate::secrets::hash_key;
@@ -26,6 +28,11 @@ use crate::settings::parse_nets;
 use net::{host_allowed, ip_allowed, resolve_client_ip};
 
 pub const RUNS_PREFIX: &str = "/runs/";
+
+tokio::task_local! {
+    /// Name of the API key that authenticated the current request (for the HTTP log).
+    static REQUEST_KEY: RefCell<Option<String>>;
+}
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -41,10 +48,12 @@ pub struct ServerStatus {
     pub state: ServerState,
     pub address: Option<String>,
     pub error: Option<String>,
+    /// The server uses HTTPS.
+    pub tls: bool,
 }
 
 struct Running {
-    shutdown: oneshot::Sender<()>,
+    handle: Handle<SocketAddr>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -64,63 +73,103 @@ impl HttpServer {
         core.events.emit(AppEvent::ServerStatusChanged);
     }
 
-    /// (Re)starts the server on the configured address.
+    fn fail(&self, core: &Core, address: String, error: String, tls: bool) -> ServerStatus {
+        let status = ServerStatus {
+            state: ServerState::Error,
+            address: Some(address),
+            error: Some(error),
+            tls,
+        };
+        self.set_status(core, status.clone());
+        status
+    }
+
+    /// (Re)starts the server on the configured address, with HTTPS if enabled.
     pub async fn start(&self, core: Arc<Core>) -> ServerStatus {
-        self.stop_inner(&core).await;
+        self.stop_inner().await;
         let s = core.settings().server;
         let addr = format!("{}:{}", s.bind_address, s.port);
-        match TcpListener::bind(&addr).await {
-            Ok(listener) => self.serve(core, listener).await,
+        let tls = if s.tls.enabled {
+            match crate::tls::load(&s.tls, &core.paths.data_dir).await {
+                Ok(c) => Some(c),
+                Err(e) => return self.fail(&core, addr, e.message, true),
+            }
+        } else {
+            None
+        };
+        match std::net::TcpListener::bind(&addr) {
+            Ok(listener) => self.serve(core, listener, tls).await,
             Err(e) => {
-                let status = ServerStatus {
-                    state: ServerState::Error,
-                    address: Some(addr.clone()),
-                    error: Some(format!("cannot listen on {addr}: {e}")),
-                };
-                self.set_status(&core, status.clone());
-                status
+                let msg = format!("cannot listen on {addr}: {e}");
+                self.fail(&core, addr, msg, s.tls.enabled)
             }
         }
     }
 
-    /// Starts serving on an already bound listener.
-    pub async fn serve(&self, core: Arc<Core>, listener: TcpListener) -> ServerStatus {
-        self.stop_inner(&core).await;
-        let addr = listener.local_addr().map(|a| a.to_string()).ok();
-        let app = Router::new().fallback(handle).with_state(core.clone());
-        let (tx, rx) = oneshot::channel::<()>();
-        let task = tokio::spawn(async move {
-            let _ = axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .with_graceful_shutdown(async {
-                let _ = rx.await;
-            })
-            .await;
-        });
-        *self.running.lock().await = Some(Running { shutdown: tx, task });
+    /// Starts serving on an already bound listener; HTTPS when `tls` is given.
+    pub async fn serve(
+        &self,
+        core: Arc<Core>,
+        listener: std::net::TcpListener,
+        tls: Option<RustlsConfig>,
+    ) -> ServerStatus {
+        self.stop_inner().await;
+        let addr = listener
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
+        let is_tls = tls.is_some();
+        if let Err(e) = listener.set_nonblocking(true) {
+            return self.fail(&core, addr, e.to_string(), is_tls);
+        }
+        let make_service = Router::new()
+            .fallback(handle)
+            .with_state(core.clone())
+            .into_make_service_with_connect_info::<SocketAddr>();
+        let handle = Handle::new();
+        let task = match tls {
+            Some(config) => match axum_server::from_tcp_rustls(listener, config) {
+                Ok(server) => {
+                    let server = server.handle(handle.clone());
+                    tokio::spawn(async move {
+                        let _ = server.serve(make_service).await;
+                    })
+                }
+                Err(e) => return self.fail(&core, addr, e.to_string(), true),
+            },
+            None => match axum_server::from_tcp(listener) {
+                Ok(server) => {
+                    let server = server.handle(handle.clone());
+                    tokio::spawn(async move {
+                        let _ = server.serve(make_service).await;
+                    })
+                }
+                Err(e) => return self.fail(&core, addr, e.to_string(), false),
+            },
+        };
+        *self.running.lock().await = Some(Running { handle, task });
         let status = ServerStatus {
             state: ServerState::Running,
-            address: addr,
+            address: Some(addr),
             error: None,
+            tls: is_tls,
         };
         self.set_status(&core, status.clone());
         status
     }
 
     pub async fn stop(&self, core: &Core) -> ServerStatus {
-        self.stop_inner(core).await;
+        self.stop_inner().await;
         let status = ServerStatus::default();
         self.set_status(core, status.clone());
         status
     }
 
-    async fn stop_inner(&self, _core: &Core) {
+    async fn stop_inner(&self) {
         if let Some(r) = self.running.lock().await.take() {
-            let _ = r.shutdown.send(());
             // In-flight sync requests may wait for long flows; don't block shutdown on them.
-            let _ = tokio::time::timeout(Duration::from_secs(3), r.task).await;
+            r.handle.graceful_shutdown(Some(Duration::from_secs(2)));
+            let _ = tokio::time::timeout(Duration::from_secs(5), r.task).await;
         }
     }
 }
@@ -174,6 +223,7 @@ fn authenticate(
     match core.db.find_key_by_hash(&hash_key(&secret)) {
         Ok(Some(key)) if key.enabled => {
             let _ = core.db.touch_key(key.id);
+            let _ = REQUEST_KEY.try_with(|k| *k.borrow_mut() = Some(key.name.clone()));
             Ok(Some(key))
         }
         Ok(_) => {
@@ -201,13 +251,42 @@ async fn handle(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
-    let s = core.settings().server;
+    let started = Instant::now();
+    let trusted = parse_nets(&core.settings().server.trusted_proxies).unwrap_or_default();
     let xff = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
-    let ip = resolve_client_ip(
-        peer.ip(),
-        xff,
-        &parse_nets(&s.trusted_proxies).unwrap_or_default(),
+    let ip = resolve_client_ip(peer.ip(), xff, &trusted);
+    let (response, key) = REQUEST_KEY
+        .scope(RefCell::new(None), async {
+            let response = handle_inner(&core, ip, &method, &uri, &headers).await;
+            (response, REQUEST_KEY.with(|k| k.borrow().clone()))
+        })
+        .await;
+    core.logs.write(
+        LogCategory::Http,
+        json!({
+            "ip": ip.to_string(),
+            "method": method.as_str(),
+            "path": uri.path(),
+            "status": response.status().as_u16(),
+            "key": key,
+            "duration_ms": started.elapsed().as_millis() as u64,
+            "user_agent": headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()),
+        }),
     );
+    response
+}
+
+async fn handle_inner(
+    core: &Arc<Core>,
+    ip: std::net::IpAddr,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> Response {
+    let s = core.settings().server;
+    let method = method.clone();
+    let headers = headers.clone();
+    let core = core.clone();
 
     if !ip_allowed(ip, &parse_nets(&s.allowed_ips).unwrap_or_default()) {
         return err(ErrorCode::Forbidden, "client address is not allowed");
