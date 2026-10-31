@@ -77,12 +77,16 @@ try {
     Check "settings set server.port" ($r.Code -eq 0 -and $r.Json.server.port -eq $Port) $r.Raw
     Start-Sleep -Milliseconds 500
 
+    # `cmd` built-ins and Windows PowerShell scripts write in the OEM code page, so the sample must be representable in it.
+    $oemCp = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage").OEMCP
+    $sample = if ($oemCp -eq "866") { "Привет" } else { "café" }
+
     $flowFile = Join-Path $data "flow.json"
     @{
         name    = "Smoke"
         path    = "smoke/test"
         actions = @(
-            @{ type = "cli_command"; params = @{ shell = "cmd"; command = "echo Привет" }; capture_output = $true },
+            @{ type = "cli_command"; params = @{ shell = "cmd"; command = "echo $sample" }; capture_output = $true },
             @{ type = "delay"; params = @{ seconds = 0 } },
             @{ type = "sleep"; params = @{} }
         )
@@ -108,7 +112,7 @@ try {
 
     $s = Http POST "/flow/smoke/test/" $secret
     Check "flow runs over HTTP" ($s.Status -eq 200 -and $s.Json.status -eq "success") ($s | ConvertTo-Json -Depth 6)
-    Check "command output is returned and decoded" ($s.Json.steps[0].stdout -like "*Привет*") $s.Json.steps[0].stdout
+    Check "command output is returned and decoded" ($s.Json.steps[0].stdout -like "*$sample*") $s.Json.steps[0].stdout
     Check "all steps reported" ($s.Json.steps.Count -eq 3)
 
     $s = Http GET "/get-allowed/" $secret
@@ -128,12 +132,12 @@ try {
     @{
         name    = "Script"
         path    = "script"
-        actions = @(@{ type = "run_script"; params = @{ shell = "powershell"; script_path = $script; args = @("Мир") }; capture_output = $true })
+        actions = @(@{ type = "run_script"; params = @{ shell = "powershell"; script_path = $script; args = @($sample) }; capture_output = $true })
     } | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $flowFile
     $sflow = Rha flows create --file $flowFile
     Check "script flow created" ($sflow.Code -eq 0) $sflow.Raw
     $r = Rha flows run script --wait
-    Check "run_script passes arguments and captures output" ($r.Json.status -eq "success" -and $r.Json.steps[0].stdout -like "*script says Мир*") $r.Raw
+    Check "run_script passes arguments and captures output" ($r.Json.status -eq "success" -and $r.Json.steps[0].stdout -like "*script says $sample*") $r.Raw
 
     $log = Rha logs tail http --limit 50
     $logText = $log.Raw
