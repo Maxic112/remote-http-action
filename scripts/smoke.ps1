@@ -6,16 +6,18 @@
 .DESCRIPTION
   Power actions run in dry-run mode (RHA_DRY_RUN_POWER=1), so the machine is not shut down.
   Requires a debug build (CLI access is enabled by default in debug builds):
-    cargo build --manifest-path src-tauri/Cargo.toml
+    cargo build --manifest-path src-tauri/Cargo.toml --bins
 #>
 param(
     [string]$Exe = "src-tauri\target\debug\remote-http-action.exe",
+    [string]$CliExe = "src-tauri\target\debug\remote-http-action-cli.exe",
     [int]$Port = 18765
 )
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $Exe = (Resolve-Path $Exe).Path
+$CliExe = (Resolve-Path $CliExe).Path
 $failures = 0
 
 function Check([string]$name, [bool]$ok, [string]$details = "") {
@@ -24,7 +26,7 @@ function Check([string]$name, [bool]$ok, [string]$details = "") {
 }
 
 function Rha {
-    $out = & $Exe @args --json 2>&1 | Out-String
+    $out = & $CliExe @args --json 2>&1 | Out-String
     $code = $LASTEXITCODE
     $json = $null
     try { $json = $out | ConvertFrom-Json } catch { }
@@ -115,6 +117,9 @@ try {
 
     $run = Rha flows run smoke/test --wait
     Check "flows run --wait over CLI" ($run.Code -eq 0 -and $run.Json.status -eq "success" -and $run.Json.source -eq "cli") $run.Raw
+
+    $main = & $Exe keys list --json 2>&1 | Out-String
+    Check "main executable also accepts CLI commands" ($LASTEXITCODE -eq 0 -and $main -like "*phone*") $main
 
     $r = Rha keys delete 99999
     Check "missing item gives exit 6" ($r.Code -eq 6) $r.Raw

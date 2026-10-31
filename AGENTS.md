@@ -39,6 +39,8 @@
 | `src-tauri/src/actions.rs` | Типы действий: валидация параметров и исполнение |
 | `src-tauri/src/platform/` | Интеграция с ОС за трейтом `Platform` (реальная реализация и mock для тестов) |
 | `src-tauri/src/ipc.rs`, `cli.rs` | CLI: разбор аргументов, named pipe к запущенному экземпляру |
+| `src-tauri/src/bin/remote-http-action-cli.rs` | Консольный exe для CLI (терминал ждёт его завершения) |
+| `src-tauri/src/headless.rs` | Режим `--headless`: сервер и CLI без окна |
 | `src-tauri/src/db.rs` | Схема SQLite, миграции, репозитории |
 | `src-tauri/src/settings.rs` | Настройки, значения по умолчанию, валидация |
 | `src-tauri/src/gui.rs` | Окно, трей, команда `api`, пересылка событий в UI |

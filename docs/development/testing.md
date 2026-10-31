@@ -49,9 +49,11 @@
 Скрипт настраивает flow, группу и ключ через CLI, затем проверяет HTTP API, историю запусков, коды выхода CLI и завершение процесса.
 
 ```bash
-cargo build --manifest-path src-tauri/Cargo.toml
+cargo build --manifest-path src-tauri/Cargo.toml --bins
 pwsh -File scripts/smoke.ps1
 ```
+
+CLI-команды скрипт выполняет через `remote-http-action-cli.exe`. Одну команду он отправляет через основной exe, чтобы проверить и этот путь.
 
 Скрипт требует отладочную сборку: в ней CLI включён по умолчанию. Окно для проверки не нужно, поэтому скрипт работает и в неинтерактивной сессии.
 

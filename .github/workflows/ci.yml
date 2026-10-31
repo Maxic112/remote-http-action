@@ -38,5 +38,5 @@ jobs:
       - name: Smoke test
         shell: pwsh
         run: |
-          cargo build --manifest-path src-tauri/Cargo.toml
+          cargo build --manifest-path src-tauri/Cargo.toml --bins
           ./scripts/smoke.ps1

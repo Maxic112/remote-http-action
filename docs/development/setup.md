@@ -30,7 +30,7 @@ pnpm tauri dev
 CLI отладочной сборки:
 
 ```bash
-src-tauri\target\debug\remote-http-action.exe keys list
+src-tauri\target\debug\remote-http-action-cli.exe keys list
 ```
 
 ## Переменные окружения
@@ -49,5 +49,5 @@ src-tauri\target\debug\remote-http-action.exe keys list
 pnpm tauri build
 ```
 
-Результат — `src-tauri\target\release\remote-http-action.exe` и установщик MSI в `src-tauri\target\release\bundle\msi\`.
-Портативная версия — тот же exe с файлом `portable.flag` рядом.
+Результат — `src-tauri\target\release\remote-http-action.exe` (приложение), `remote-http-action-cli.exe` (консольный CLI) и установщик MSI в `src-tauri\target\release\bundle\msi\`.
+MSI устанавливает оба exe. Портативная версия — оба exe с файлом `portable.flag` рядом.
