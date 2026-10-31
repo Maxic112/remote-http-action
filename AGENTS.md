@@ -7,7 +7,7 @@
 
 Десктопное приложение для Windows (Tauri 2 + React/TypeScript). Приложение держит HTTP-сервер:
 запрос с API-ключом к адресу flow запускает на компьютере заранее настроенную последовательность действий.
-Всё, что доступно в окне, доступно и через CLI того же exe.
+Всё, что доступно в окне, доступно и через CLI (`remote-http-action-cli.exe`).
 
 ## Стек
 
@@ -25,7 +25,8 @@
 | Все проверки типов и тесты | `pnpm test:all` |
 | Линтеры (ESLint, Prettier, rustfmt, clippy) | `pnpm lint` |
 | Автоформатирование | `pnpm format` |
-| Сборка релиза | `pnpm tauri build` |
+| Сборка релиза (MSI) | `pnpm tauri build` |
+| Релиз целиком: MSI + портативный zip | `pnpm package` |
 
 Перед завершением любой задачи выполняются `pnpm lint` и `pnpm test:all`. Обе команды должны проходить без ошибок.
 
@@ -48,7 +49,9 @@
 | `src-tauri/src/settings.rs` | Настройки, значения по умолчанию, валидация |
 | `src-tauri/src/gui.rs` | Окно, трей, команда `api`, пересылка событий в UI |
 | `src/lib/` | Типы (зеркало Rust-моделей), API-клиент, хелперы |
-| `src/features/` | Страницы: flows, keys, groups, runs, settings |
+| `src/features/` | Страницы: flows, keys, groups, runs, logs, settings |
+| `scripts/` | `smoke.ps1` — сквозной тест реального exe; `package-portable.ps1` — портативный zip |
+| `assets/app-icon.svg` | Исходник иконки; набор в `src-tauri/icons/` генерируется `pnpm tauri icon assets/app-icon.svg` |
 | `src/i18n/` | Переводы ru/en (наборы ключей должны совпадать) |
 
 ## Обязательные правила

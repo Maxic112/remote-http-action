@@ -3,7 +3,8 @@
 ## Руководство пользователя — [user/](user/index.md)
 
 - [Обзор и основные понятия](user/overview.md)
-- [Установка и первый запуск](user/getting-started.md)
+- [Установка, обновление и удаление](user/installation.md)
+- [Первый запуск](user/getting-started.md)
 - [API-ключи](user/api-keys.md)
 - [Группы доступа](user/access-groups.md)
 - [Flow](user/flows.md)
@@ -15,6 +16,7 @@
 - [Логи](user/logs.md)
 - [Права администратора](user/administrator-rights.md)
 - [Командная строка (CLI)](user/cli.md)
+- [Решение проблем](user/troubleshooting.md)
 
 ## HTTP API — [api/](api/index.md)
 

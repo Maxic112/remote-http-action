@@ -1,13 +1,14 @@
 {
   "name": "remote-http-action",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "package": "pwsh -NoProfile -File scripts/package.ps1",
     "typecheck": "tsc --noEmit",
     "lint": "pnpm lint:web && pnpm lint:rust",
     "lint:web": "eslint . && prettier --check .",

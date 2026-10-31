@@ -1,6 +1,6 @@
 [package]
 name = "remote-http-action"
-version = "0.1.0"
+version = "1.0.0"
 description = "HTTP server for running predefined actions on a Windows computer"
 authors = ["remote-http-action contributors"]
 license = "MIT"

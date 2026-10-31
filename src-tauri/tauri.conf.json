@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "remote-http-action",
-  "version": "0.1.0",
+  "productName": "Remote HTTP Action",
+  "mainBinaryName": "remote-http-action",
+  "version": "1.0.0",
   "identifier": "com.remotehttpaction.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -27,13 +28,29 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
+    "targets": [
+      "msi"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "remote-http-action contributors",
+    "copyright": "© 2026 remote-http-action contributors. MIT License.",
+    "category": "Utility",
+    "shortDescription": "HTTP server for running predefined actions on a Windows computer",
+    "longDescription": "Remote HTTP Action keeps an HTTP(S) server running and executes configured flows — shutdown, sleep, commands, scripts, application launches — on authorized requests with API keys.",
+    "windows": {
+      "wix": {
+        "language": [
+          "ru-RU",
+          "en-US"
+        ],
+        "upgradeCode": "6BF27B3C-7CC1-47BB-9B9E-F9EBDF14FD19"
+      }
+    }
   }
 }

@@ -46,8 +46,31 @@ src-tauri\target\debug\remote-http-action-cli.exe keys list
 ## Сборка релиза
 
 ```bash
-pnpm tauri build
+pnpm package
 ```
 
-Результат — `src-tauri\target\release\remote-http-action.exe` (приложение), `remote-http-action-cli.exe` (консольный CLI) и установщик MSI в `src-tauri\target\release\bundle\msi\`.
-MSI устанавливает оба exe. Портативная версия — оба exe с файлом `portable.flag` рядом.
+Команда (`scripts/package.ps1`) очищает `bundle\`, выполняет `pnpm tauri build` и `scripts/package-portable.ps1`. Результат:
+
+| Путь | Что это |
+|---|---|
+| `src-tauri\target\release\remote-http-action.exe` | Приложение |
+| `src-tauri\target\release\remote-http-action-cli.exe` | Консольный CLI |
+| `src-tauri\target\release\bundle\msi\*_ru-RU.msi`, `*_en-US.msi` | Установщики (ставят оба exe) |
+| `src-tauri\target\release\bundle\portable\*_portable.zip` | Портативная версия: оба exe и `portable.flag` |
+
+Перед сборкой закройте приложение: запущенный exe нельзя перезаписать.
+
+## Версия
+
+Номер версии задаётся в трёх местах и должен совпадать: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`.
+`upgradeCode` в `tauri.conf.json` менять нельзя: по нему установщик новой версии находит и заменяет старую.
+
+## Иконка
+
+Исходник — `assets/app-icon.svg`. После правки пересоздайте набор:
+
+```bash
+pnpm tauri icon assets/app-icon.svg
+```
+
+Удалите появившиеся каталоги `src-tauri/icons/android` и `src-tauri/icons/ios`: мобильные платформы не используются.
