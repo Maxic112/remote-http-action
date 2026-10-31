@@ -38,6 +38,7 @@
 - [Тестирование](development/testing.md)
 - [Добавление нового действия](development/adding-action.md)
 - [Соглашения](development/conventions.md)
+- [Выпуск релиза](development/releasing.md)
 
 ## Для агентов — [agents/](agents/index.md)
 

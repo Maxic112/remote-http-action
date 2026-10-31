@@ -27,6 +27,7 @@
 | Автоформатирование | `pnpm format` |
 | Сборка релиза (MSI) | `pnpm tauri build` |
 | Релиз целиком: MSI + портативный zip | `pnpm package` |
+| Выпуск релиза на GitHub | тег `vX.Y.Z`, см. [docs/development/releasing.md](docs/development/releasing.md) |
 
 Перед завершением любой задачи выполняются `pnpm lint` и `pnpm test:all`. Обе команды должны проходить без ошибок.
 
@@ -73,7 +74,9 @@
 6. **Синхронизация типов.** Изменения в моделях Rust (`model.rs`, `settings.rs`, `Request`) повторяются в `src/lib/types.ts`.
 7. **Переводы.** Новые строки UI добавляются в `src/i18n/ru.ts` и `src/i18n/en.ts` одновременно; тест проверяет совпадение ключей.
 8. **Новые действия** добавляются по инструкции [docs/development/adding-action.md](docs/development/adding-action.md).
-9. **Git.** Ветка `main`, сообщения в стиле Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
+9. **Релизы.** Версия в `package.json`, `Cargo.toml`, `tauri.conf.json` совпадает; каждая версия описана в `CHANGELOG.md`.
+   Имена файлов релиза и `SHA256SUMS.txt` — контракт с механизмом обновления, их не менять.
+10. **Git.** Ветка `main`, сообщения в стиле Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 
 ## Документация
 

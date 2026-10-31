@@ -1,0 +1,71 @@
+name: Release
+
+# Pushing a version tag (v1.2.3, or v1.2.3-beta.1 for a pre-release) builds the installers and the
+# portable zip and publishes them as a GitHub release. The application's updater reads that release.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check version
+        shell: pwsh
+        run: ./scripts/check-version.ps1 -Tag "${{ github.ref_name }}"
+
+      - name: Release notes from CHANGELOG.md
+        shell: pwsh
+        run: ./scripts/release-notes.ps1 -Version "${{ github.ref_name }}" -Out release-notes.md
+
+      # tauri::generate_context! expects the frontend build output to exist.
+      - run: pnpm build
+
+      - run: pnpm lint
+
+      - run: pnpm test:all
+
+      - name: Build installers and portable zip
+        run: pnpm package
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $files = (Get-ChildItem src-tauri/target/release/bundle/release -File).FullName
+          $ghArgs = @("release", "create", $tag) + $files + @(
+            "--title", "Remote HTTP Action $($tag.TrimStart('v'))",
+            "--notes-file", "release-notes.md",
+            "--verify-tag"
+          )
+          # Pre-releases are not offered by the updater (it reads /releases/latest).
+          if ($tag.Contains("-")) { $ghArgs += "--prerelease" }
+          gh @ghArgs

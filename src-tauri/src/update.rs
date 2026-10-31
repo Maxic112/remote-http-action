@@ -23,7 +23,7 @@ use crate::events::AppEvent;
 use crate::model::now;
 
 /// GitHub repository the releases are published in.
-pub const REPOSITORY: &str = "remote-http-action/remote-http-action";
+pub const REPOSITORY: &str = "Maxic112/remote-http-action";
 pub const STATE_KEY: &str = "update_state";
 pub const CHECKSUMS_ASSET: &str = "SHA256SUMS.txt";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 3600);

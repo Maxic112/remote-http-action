@@ -43,6 +43,14 @@ fn parses_github_release() {
 }
 
 #[test]
+fn default_feed_points_to_the_project_releases() {
+    assert_eq!(
+        default_feed_url(),
+        "https://api.github.com/repos/Maxic112/remote-http-action/releases/latest"
+    );
+}
+
+#[test]
 fn compares_versions() {
     assert!(is_newer("1.0.1", "1.0.0"));
     assert!(is_newer("v1.10.0", "1.9.9"));

@@ -20,7 +20,8 @@
 
 ## Установка
 
-Установщик MSI или портативный zip, см. [Установка, обновление и удаление](docs/user/installation.md).
+Установщик MSI или портативный zip — на странице [Releases](https://github.com/Maxic112/remote-http-action/releases).
+Подробнее: [Установка, обновление и удаление](docs/user/installation.md).
 
 ## Быстрый пример
 

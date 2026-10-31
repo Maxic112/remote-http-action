@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: windows-latest
@@ -27,6 +31,10 @@ jobs:
           workspaces: src-tauri
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Check version
+        shell: pwsh
+        run: ./scripts/check-version.ps1
 
       # tauri::generate_context! expects the frontend build output to exist.
       - run: pnpm build
