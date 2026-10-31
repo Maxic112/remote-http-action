@@ -432,9 +432,14 @@ mod tests {
 
     #[tokio::test]
     async fn cmd_output_is_utf8_and_exit_codes_are_reported() {
-        let out = run("cmd", "echo Привет & echo second").await;
+        // `cmd` built-ins write in the OEM code page, so the sample must be representable in it.
+        let sample = match unsafe { windows::Win32::Globalization::GetOEMCP() } {
+            866 => "Привет",
+            _ => "café",
+        };
+        let out = run("cmd", &format!("echo {sample} & echo second")).await;
         assert_eq!(out.exit_code, Some(0));
-        assert!(out.stdout.contains("Привет"), "{:?}", out.stdout);
+        assert!(out.stdout.contains(sample), "{:?}", out.stdout);
         assert!(out.stdout.contains("second"));
         let out = run("cmd", "exit /b 7").await;
         assert_eq!(out.exit_code, Some(7));
@@ -505,7 +510,7 @@ mod tests {
             .unwrap();
     }
 
-    /// A launcher: PowerShell starts a hidden child that sleeps 3 s, then exits immediately.
+    /// A launcher: PowerShell starts a hidden child that sleeps 6 s, then exits immediately.
     fn launcher() -> ProcessSpec {
         ProcessSpec {
             program: "powershell.exe".into(),
@@ -514,7 +519,7 @@ mod tests {
                 "-WindowStyle".into(),
                 "Hidden".into(),
                 "-Command".into(),
-                "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 3'".into(),
+                "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 6'".into(),
             ],
             raw_args: false,
             working_dir: None,
@@ -530,7 +535,7 @@ mod tests {
             .unwrap();
         assert_eq!(code, Some(0));
         assert!(
-            started.elapsed() < Duration::from_millis(2900),
+            started.elapsed() < Duration::from_millis(5500),
             "{:?}",
             started.elapsed()
         );
@@ -545,7 +550,7 @@ mod tests {
             .unwrap();
         assert_eq!(code, Some(0));
         assert!(
-            started.elapsed() >= Duration::from_secs(3),
+            started.elapsed() >= Duration::from_secs(6),
             "{:?}",
             started.elapsed()
         );
